@@ -5,10 +5,6 @@ import os
 # パス設定
 sys.path.append(os.path.join(os.path.dirname(__file__), 'src'))
 
-# 基本インポート
-from vector_db_processor import VectorDBProcessor
-import json
-
 # ページ設定
 st.set_page_config(
     page_title="Company RAG System",
@@ -16,38 +12,31 @@ st.set_page_config(
     layout="wide"
 )
 
-# メイン処理
 def main():
-    st.title("Company RAG System")
-    st.markdown("### 🛠️ 機能メニュー")
+    st.title("🏢 Company RAG System")
+    st.markdown("### Notion統合版 - 企業データ統合検索システム")
     
-    # サイドバー
+    # システム状態確認（簡略版）
     with st.sidebar:
         st.header("🔧 システム状態")
         
         # ベクトルDB状態確認
         try:
+            from vector_db_processor import VectorDBProcessor
             vector_db = VectorDBProcessor()
             db_info = vector_db.get_collection_info()
             if db_info["status"] == "active":
                 st.success("ベクトルDB: 🟢 正常")
             else:
                 st.error(f"ベクトルDB: 🔴 {db_info['status']}")
-        except Exception as e:
-            st.error(f"ベクトルDB: 🔴 エラー - {e}")
-        
-        st.header("📊 DB統計")
-        try:
+                
+            # DB統計
+            st.header("📊 DB統計")
             stats = vector_db.get_stats()
             st.metric("文書数", stats.get("total_documents", 0))
-            if stats.get("status") == "success":
-                st.success("データベース: 正常")
-            elif stats.get("status") == "empty":
-                st.warning("データベース: 空")
-            else:
-                st.error(f"データベース: {stats.get('status', 'エラー')}")
+            
         except Exception as e:
-            st.error(f"統計取得エラー: {e}")
+            st.error(f"システムエラー: {e}")
         
         # 環境変数チェック
         st.subheader("🔑 環境変数チェック")
@@ -64,52 +53,58 @@ def main():
             else:
                 st.error(f"❌ {var_name}")
         
-        # データ統合ボタン（修正部分）
+        # データ統合（デバッグ版）
         st.subheader("🔄 データ統合")
         st.write("👇 下のボタンでデータを統合してください")
         
-        # 修正: final_integrationモジュールのインポートとエラーハンドリング
-        data_integration_available = False
+        # final_integrationのインポートテスト
+        integration_available = False
+        import_error_msg = ""
+        
         try:
             from final_integration import run_data_integration
-            data_integration_available = True
+            integration_available = True
+            st.success("✅ データ統合モジュール: 正常")
         except ImportError as e:
+            import_error_msg = str(e)
             try:
-                # 代替インポート方法
+                # 代替パス
                 sys.path.append('.')
                 from final_integration import run_data_integration
-                data_integration_available = True
-            except ImportError:
-                try:
-                    # src/からのインポート
-                    from src.final_integration import run_data_integration
-                    data_integration_available = True
-                except ImportError:
-                    st.error("❌ データ統合モジュールが見つかりません")
-                    st.error(f"インポートエラー詳細: {e}")
+                integration_available = True
+                st.success("✅ データ統合モジュール: 正常（代替パス）")
+            except ImportError as e2:
+                st.error("❌ データ統合モジュールが見つかりません")
+                st.error(f"エラー: {import_error_msg}")
+                st.error(f"代替エラー: {str(e2)}")
         
-        # データ統合ボタンの表示
-        if data_integration_available:
+        # データ統合ボタン
+        if integration_available:
             if st.button("🔄 データを統合する", type="primary"):
                 with st.spinner("データ統合処理中..."):
                     try:
+                        st.info("📝 データ統合を開始...")
+                        
+                        # デバッグ用の詳細実行
                         success = run_data_integration()
+                        
                         if success:
                             st.success("✅ データ統合が完了しました！")
-                            st.rerun()  # ページを再読み込みして統計を更新
+                            st.experimental_rerun()
                         else:
                             st.error("❌ データ統合に失敗しました")
+                            
                     except Exception as e:
                         st.error(f"❌ データ統合エラー: {e}")
+                        st.exception(e)  # 詳細なエラー表示
         else:
             st.error("❌ データ統合機能が利用できません")
     
-    # メインコンテンツ
-    tab1, tab2, tab3, tab4 = st.tabs(["🏠 ホーム", "🔍 ベクトル検索", "💬 AIチャット", "📓 Notion統合"])
+    # メインコンテンツ（簡略版）
+    tab1, tab2, tab3 = st.tabs(["🏠 ホーム", "🔍 ベクトル検索", "📓 Notion統合"])
     
     with tab1:
-        st.header("企業データ統合検索システム")
-        st.markdown("#### 🏠 ホーム - システム概要")
+        st.header("🏠 ホーム - システム概要")
         
         col1, col2 = st.columns(2)
         
@@ -144,24 +139,11 @@ def main():
                 * 📝 テキストブロック
                 * ✅ タスクリスト
                 """)
-            
-            st.markdown("#### ⚡ 自動処理機能")
-            col1, col2 = st.columns(2)
-            with col1:
-                st.markdown("""
-                * テキスト抽出・構造化
-                * ベクトル化・インデックス作成
-                """)
-            with col2:
-                st.markdown("""
-                * 意味検索対応
-                * リアルタイム同期
-                """)
-            
+                
         else:
             st.warning("⚠️ Notion統合には環境変数の設定が必要です")
         
-        st.markdown("#### 📖 Notion統合の使い方")
+        st.markdown("#### 📖 使い方")
         
         with st.expander("1️⃣ Notionデータの取得", expanded=False):
             st.markdown("""
@@ -176,13 +158,6 @@ def main():
             2. 「ベクトルDBに追加」をクリック
             3. 自動的にテキスト抽出・ベクトル化
             """)
-        
-        with st.expander("3️⃣ 検索・AIチャット", expanded=False):
-            st.markdown("""
-            1. 「🔍 ベクトル検索」で検索実行
-            2. 手動追加文書とNotion文書を横断検索
-            3. AIチャットでNotionデータを参照した回答
-            """)
     
     with tab2:
         st.header("🔍 ベクトル検索")
@@ -193,16 +168,17 @@ def main():
             if query:
                 with st.spinner("検索中..."):
                     try:
+                        from vector_db_processor import VectorDBProcessor
                         vector_db = VectorDBProcessor()
                         results = vector_db.search(query)
                         
                         if results:
                             st.success(f"✅ {len(results)}件の結果が見つかりました")
                             
-                            for i, result in enumerate(results[:10]):  # 上位10件表示
+                            for i, result in enumerate(results[:5]):  # 上位5件表示
                                 with st.expander(f"📄 結果 {i+1} - 類似度: {1-result['distance']:.3f}"):
                                     st.write("**内容:**")
-                                    st.write(result['content'][:500] + "..." if len(result['content']) > 500 else result['content'])
+                                    st.write(result['content'][:300] + "..." if len(result['content']) > 300 else result['content'])
                                     
                                     if result.get('metadata'):
                                         st.write("**メタデータ:**")
@@ -211,75 +187,11 @@ def main():
                             st.warning("⚠️ 検索結果が見つかりませんでした")
                     except Exception as e:
                         st.error(f"❌ 検索エラー: {e}")
+                        st.exception(e)
             else:
                 st.warning("検索クエリを入力してください")
     
     with tab3:
-        st.header("💬 AIチャット")
-        st.markdown("RAG機能を使用した対話型AI")
-        
-        # チャット履歴の初期化
-        if "messages" not in st.session_state:
-            st.session_state.messages = []
-        
-        # チャット履歴の表示
-        for message in st.session_state.messages:
-            with st.chat_message(message["role"]):
-                st.markdown(message["content"])
-        
-        # ユーザー入力
-        if prompt := st.chat_input("AIに質問してください"):
-            # ユーザーのメッセージを追加
-            st.session_state.messages.append({"role": "user", "content": prompt})
-            with st.chat_message("user"):
-                st.markdown(prompt)
-            
-            # AI応答の生成
-            with st.chat_message("assistant"):
-                with st.spinner("AIが考えています..."):
-                    try:
-                        # ベクトル検索で関連文書を取得
-                        vector_db = VectorDBProcessor()
-                        search_results = vector_db.search(prompt, n_results=5)
-                        
-                        if search_results:
-                            context = "\n".join([result['content'][:300] for result in search_results[:3]])
-                            
-                            # OpenAI APIを使用した応答生成
-                            import openai
-                            openai.api_key = st.secrets["OPENAI_API_KEY"]
-                            
-                            response = openai.ChatCompletion.create(
-                                model="gpt-4",
-                                messages=[
-                                    {"role": "system", "content": f"以下の文書コンテキストを参考にして、ユーザーの質問に答えてください。\n\nコンテキスト:\n{context}"},
-                                    {"role": "user", "content": prompt}
-                                ],
-                                max_tokens=1000,
-                                temperature=0.7
-                            )
-                            
-                            ai_response = response.choices[0].message.content
-                            st.markdown(ai_response)
-                            
-                            # 参考文書の表示
-                            with st.expander("📚 参考にした文書"):
-                                for i, result in enumerate(search_results[:3]):
-                                    st.write(f"**文書 {i+1}:**")
-                                    st.write(result['content'][:200] + "...")
-                        else:
-                            ai_response = "申し訳ありませんが、関連する文書が見つかりませんでした。一般的な回答をします。"
-                            st.markdown(ai_response)
-                        
-                        # AIの応答をセッションに追加
-                        st.session_state.messages.append({"role": "assistant", "content": ai_response})
-                        
-                    except Exception as e:
-                        error_msg = f"❌ AI応答エラー: {e}"
-                        st.error(error_msg)
-                        st.session_state.messages.append({"role": "assistant", "content": error_msg})
-    
-    with tab4:
         st.header("📓 Notion統合")
         
         if not st.secrets.get("NOTION_TOKEN"):
@@ -296,10 +208,10 @@ def main():
                     try:
                         from notion_processor import NotionProcessor
                         notion = NotionProcessor()
-                        # 接続テスト処理
                         st.success("✅ Notion接続成功")
                     except Exception as e:
                         st.error(f"❌ Notion接続エラー: {e}")
+                        st.exception(e)
         
         with col2:
             if st.button("📋 ページ・DB一覧"):
@@ -312,13 +224,14 @@ def main():
                         if pages:
                             st.success(f"✅ {len(pages)}件のページを取得")
                             
-                            for page in pages[:10]:  # 上位10件表示
+                            for page in pages[:5]:  # 上位5件表示
                                 with st.expander(f"📄 {page.get('title', 'タイトルなし')}"):
                                     st.json(page)
                         else:
                             st.warning("⚠️ ページが見つかりません")
                     except Exception as e:
                         st.error(f"❌ ページ取得エラー: {e}")
+                        st.exception(e)
     
     # フッター
     st.markdown("---")
@@ -326,5 +239,8 @@ def main():
     st.markdown("Streamlit Cloud対応 | RAG + Notion Integration")
 
 if __name__ == "__main__":
-    main()
-
+    try:
+        main()
+    except Exception as e:
+        st.error(f"❌ アプリケーション起動エラー: {e}")
+        st.exception(e)
