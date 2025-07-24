@@ -1,7 +1,6 @@
 """
-Google Drive データ処理モジュール
-Google Drive から各種文書を取得し、テキストを抽出します
-PDF、Word、Excel、PowerPoint に対応
+Google Drive データ処理モジュール - Streamlit対応版
+Streamlit Secrets から認証情報を取得し、Google Drive から各種文書を取得
 """
 
 import os
@@ -10,28 +9,27 @@ import io
 from typing import List, Dict, Optional
 from googleapiclient.discovery import build
 from google.oauth2.service_account import Credentials
-
-# PDF/Office文書処理用ライブラリ
-import PyPDF2
-from docx import Document
-import openpyxl
-from pptx import Presentation
+import streamlit as st
 
 class GoogleDriveProcessor:
-    def __init__(self, credentials_path: str):
+    def __init__(self):
         """
-        Google Drive プロセッサーを初期化
-        
-        Args:
-            credentials_path (str): Google Drive API認証ファイルのパス
+        Google Drive プロセッサーを初期化 - Streamlit環境対応版
         """
-        self.credentials_path = credentials_path
         self.service = None
         self.setup_service()
     
     def setup_service(self):
         """Google Drive API サービスを設定"""
         try:
+            # Streamlit Secretsから認証情報を取得
+            try:
+                credentials_info = st.secrets["GOOGLE_DRIVE_CREDENTIALS"]
+                if not credentials_info:
+                    raise ValueError("GOOGLE_DRIVE_CREDENTIALS が設定されていません")
+            except KeyError:
+                raise ValueError("Streamlit SecretsにGOOGLE_DRIVE_CREDENTIALSが設定されていません")
+            
             # 必要なスコープ
             SCOPES = [
                 'https://www.googleapis.com/auth/drive.readonly',
@@ -40,18 +38,26 @@ class GoogleDriveProcessor:
                 'https://www.googleapis.com/auth/presentations.readonly'
             ]
             
+            # Streamlit SecretsからJSON形式の認証情報を取得
+            if isinstance(credentials_info, dict):
+                # 辞書形式の場合はそのまま使用
+                credentials_dict = credentials_info
+            else:
+                # 文字列形式の場合はJSONとしてパース
+                credentials_dict = json.loads(credentials_info)
+            
             # 認証情報を読み込み
-            credentials = Credentials.from_service_account_file(
-                self.credentials_path, 
+            credentials = Credentials.from_service_account_info(
+                credentials_dict, 
                 scopes=SCOPES
             )
             
             # Drive API サービスを構築
             self.service = build('drive', 'v3', credentials=credentials)
-            print("✅ Google Drive API サービスが正常に初期化されました")
+            st.info("✅ Google Drive API サービスが正常に初期化されました")
             
         except Exception as e:
-            print(f"❌ Google Drive API 初期化エラー: {e}")
+            st.error(f"❌ Google Drive API 初期化エラー: {e}")
             self.service = None
     
     def list_files(self, folder_id: Optional[str] = None, file_types: Optional[List[str]] = None) -> List[Dict]:
@@ -66,6 +72,7 @@ class GoogleDriveProcessor:
             List[Dict]: ファイル情報のリスト
         """
         if not self.service:
+            st.error("❌ Google Drive API サービスが初期化されていません")
             return []
         
         try:
@@ -97,7 +104,7 @@ class GoogleDriveProcessor:
                     query_parts.append(f"({' or '.join(mime_types)})")
             
             query_parts.append("trashed=false")
-            query = ' and '.join(query_parts)
+            query = ' and '.join(query_parts) if query_parts else "trashed=false"
             
             # ファイル一覧を取得
             results = self.service.files().list(
@@ -107,90 +114,13 @@ class GoogleDriveProcessor:
             ).execute()
             
             files = results.get('files', [])
-            print(f"📁 {len(files)} 件のファイルが見つかりました")
+            st.info(f"📁 {len(files)} 件のGoogle Driveファイルが見つかりました")
             
             return files
             
         except Exception as e:
-            print(f"❌ ファイル一覧取得エラー: {e}")
+            st.error(f"❌ Google Driveファイル一覧取得エラー: {e}")
             return []
-    
-    def extract_text_from_pdf(self, file_content: bytes) -> str:
-        """PDFファイルからテキストを抽出"""
-        try:
-            pdf_file = io.BytesIO(file_content)
-            pdf_reader = PyPDF2.PdfReader(pdf_file)
-            
-            text = ""
-            for page in pdf_reader.pages:
-                text += page.extract_text() + "\n"
-            
-            return text.strip()
-        except Exception as e:
-            print(f"❌ PDF テキスト抽出エラー: {e}")
-            return ""
-    
-    def extract_text_from_docx(self, file_content: bytes) -> str:
-        """Word文書からテキストを抽出"""
-        try:
-            doc_file = io.BytesIO(file_content)
-            doc = Document(doc_file)
-            
-            text = ""
-            for paragraph in doc.paragraphs:
-                text += paragraph.text + "\n"
-            
-            return text.strip()
-        except Exception as e:
-            print(f"❌ Word テキスト抽出エラー: {e}")
-            return ""
-    
-    def extract_text_from_xlsx(self, file_content: bytes) -> str:
-        """Excelファイルからテキストを抽出"""
-        try:
-            excel_file = io.BytesIO(file_content)
-            workbook = openpyxl.load_workbook(excel_file)
-            
-            text = ""
-            for sheet_name in workbook.sheetnames:
-                sheet = workbook[sheet_name]
-                text += f"=== {sheet_name} ===\n"
-                
-                for row in sheet.iter_rows(values_only=True):
-                    row_text = []
-                    for cell in row:
-                        if cell is not None:
-                            row_text.append(str(cell))
-                    if row_text:
-                        text += "\t".join(row_text) + "\n"
-                
-                text += "\n"
-            
-            return text.strip()
-        except Exception as e:
-            print(f"❌ Excel テキスト抽出エラー: {e}")
-            return ""
-    
-    def extract_text_from_pptx(self, file_content: bytes) -> str:
-        """PowerPointファイルからテキストを抽出"""
-        try:
-            ppt_file = io.BytesIO(file_content)
-            presentation = Presentation(ppt_file)
-            
-            text = ""
-            for i, slide in enumerate(presentation.slides):
-                text += f"=== スライド {i+1} ===\n"
-                
-                for shape in slide.shapes:
-                    if hasattr(shape, "text"):
-                        text += shape.text + "\n"
-                
-                text += "\n"
-            
-            return text.strip()
-        except Exception as e:
-            print(f"❌ PowerPoint テキスト抽出エラー: {e}")
-            return ""
     
     def download_and_extract_text(self, file_id: str, mime_type: str) -> str:
         """ファイルをダウンロードしてテキストを抽出"""
@@ -211,17 +141,8 @@ class GoogleDriveProcessor:
             
             file_content = request.execute()
             
-            # ファイルタイプに応じてテキスト抽出
-            if mime_type == 'application/pdf':
-                return self.extract_text_from_pdf(file_content)
-            elif mime_type == 'application/vnd.openxmlformats-officedocument.wordprocessingml.document':
-                return self.extract_text_from_docx(file_content)
-            elif mime_type == 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet':
-                return self.extract_text_from_xlsx(file_content)
-            elif mime_type == 'application/vnd.openxmlformats-officedocument.presentationml.presentation':
-                return self.extract_text_from_pptx(file_content)
-            elif 'google-apps' in mime_type:
-                # Google Docs形式はプレーンテキストとして処理
+            # Google Docs形式の場合はプレーンテキストとして処理
+            if 'google-apps' in mime_type:
                 return file_content.decode('utf-8')
             else:
                 # その他はプレーンテキストとして試行
@@ -231,81 +152,51 @@ class GoogleDriveProcessor:
                     return file_content.decode('utf-8', errors='ignore')
         
         except Exception as e:
-            print(f"❌ ファイルダウンロード・テキスト抽出エラー: {e}")
+            st.error(f"❌ ファイルダウンロード・テキスト抽出エラー: {e}")
             return ""
     
-    def process_all_files(self) -> List[Dict]:
+    def get_all_files(self) -> List[Dict]:
         """
-        全ファイルを処理してテキストを抽出
+        全ファイルを処理してRAG用のドキュメント形式で返す
         
         Returns:
             List[Dict]: 処理されたドキュメントのリスト
         """
-        print("🔍 Google Drive ファイル処理を開始...")
+        st.info("🔍 Google Drive ファイル処理を開始...")
         
-        # 対応ファイルタイプ
-        supported_types = ['pdf', 'docx', 'xlsx', 'pptx', 'docs', 'sheets', 'slides']
+        # 対応ファイルタイプ（軽量化のためGoogle Apps形式を優先）
+        supported_types = ['docs', 'sheets', 'slides']
         files = self.list_files(file_types=supported_types)
         
         documents = []
         
         for file_info in files:
-            print(f"📄 処理中: {file_info['name']}")
-            
-            # テキストを抽出
-            text = self.download_and_extract_text(file_info['id'], file_info['mimeType'])
-            
-            if text.strip():
-                document = {
-                    'id': f"gdrive_{file_info['id']}",
-                    'title': file_info['name'],
-                    'content': text,
-                    'source': 'google_drive',
-                    'mime_type': file_info['mimeType'],
-                    'size': file_info.get('size', '0'),
-                    'created_time': file_info.get('createdTime', ''),
-                    'modified_time': file_info.get('modifiedTime', ''),
-                    'url': f"https://drive.google.com/file/d/{file_info['id']}/view"
-                }
-                documents.append(document)
-                print(f"✅ テキスト抽出成功: {len(text)} 文字")
-            else:
-                print(f"⚠️ テキスト抽出失敗: {file_info['name']}")
+            try:
+                st.info(f"📄 Google Driveファイル処理中: {file_info['name']}")
+                
+                # テキストを抽出
+                text = self.download_and_extract_text(file_info['id'], file_info['mimeType'])
+                
+                if text.strip():
+                    document = {
+                        'id': f"gdrive_{file_info['id']}",
+                        'title': file_info['name'],
+                        'content': text,
+                        'source': 'google_drive',
+                        'type': 'document',
+                        'mime_type': file_info['mimeType'],
+                        'size': file_info.get('size', '0'),
+                        'created_time': file_info.get('createdTime', ''),
+                        'modified_time': file_info.get('modifiedTime', ''),
+                        'url': f"https://drive.google.com/file/d/{file_info['id']}/view"
+                    }
+                    documents.append(document)
+                    st.success(f"✅ Google Driveファイル処理成功: {file_info['name']} ({len(text)} 文字)")
+                else:
+                    st.warning(f"⚠️ テキスト抽出失敗: {file_info['name']}")
+            except Exception as e:
+                st.error(f"❌ ファイル処理エラー: {e}")
+                continue
         
-        print(f"🎉 Google Drive 処理完了: {len(documents)} 件のドキュメント")
+        st.success(f"🎉 Google Drive 処理完了: {len(documents)} 件のドキュメント")
         return documents
-
-def test_google_drive_processor():
-    """Google Drive プロセッサーのテスト実行"""
-    print("=== Google Drive プロセッサー テスト実行 ===")
-    
-    # 認証ファイルのパス
-    credentials_path = "./credentials/google-drive-credentials.json"
-    
-    if not os.path.exists(credentials_path):
-        print(f"❌ 認証ファイルが見つかりません: {credentials_path}")
-        return
-    
-    try:
-        # プロセッサーを初期化
-        processor = GoogleDriveProcessor(credentials_path)
-        
-        # ファイル一覧を取得（テスト）
-        files = processor.list_files()
-        print(f"📁 利用可能ファイル数: {len(files)}")
-        
-        if files:
-            print("\n📋 ファイル一覧（最初の5件）:")
-            for i, file_info in enumerate(files[:5]):
-                print(f"  {i+1}. {file_info['name']} ({file_info['mimeType']})")
-        
-        # 実際の処理はコメントアウト（テスト時に大量データ処理を避けるため）
-        # documents = processor.process_all_files()
-        
-        print("\n✅ Google Drive プロセッサーテスト完了")
-        
-    except Exception as e:
-        print(f"❌ テスト実行エラー: {e}")
-
-if __name__ == "__main__":
-    test_google_drive_processor()
