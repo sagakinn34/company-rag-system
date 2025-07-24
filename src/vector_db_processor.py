@@ -35,7 +35,7 @@ class VectorDBProcessor:
             # テキストをベクトル化
             embeddings = self.model.encode(texts)
             
-            # ★ 修正1: numpy配列を確実にリストに変換
+            # エラー修正: numpy配列をリストに変換
             if isinstance(embeddings, np.ndarray):
                 embeddings = embeddings.tolist()
             elif hasattr(embeddings, 'tolist'):
@@ -43,7 +43,7 @@ class VectorDBProcessor:
             
             # ChromaDBに追加
             self.collection.add(
-                embeddings=embeddings,  # .tolist()を削除（上で処理済み）
+                embeddings=embeddings,
                 documents=texts,
                 metadatas=metadatas,
                 ids=ids
@@ -59,10 +59,10 @@ class VectorDBProcessor:
         try:
             print("埋め込みモデルを読み込み中...")
             
-            # ★ 修正2: クエリを単一文字列として処理（リストではなく）
+            # クエリのembedding生成
             query_embedding = self.model.encode(query)
             
-            # ★ 修正3: numpy配列を確実にリストに変換
+            # エラー修正: numpy配列をリストに変換
             if isinstance(query_embedding, np.ndarray):
                 query_embedding = query_embedding.tolist()
             elif hasattr(query_embedding, 'tolist'):
@@ -73,9 +73,9 @@ class VectorDBProcessor:
             # 検索結果数を最大50件まで対応
             max_results = min(n_results, 50)
             
-            # ★ 修正4: ChromaDBのquery_embeddingsは必ずリスト形式
+            # エラー修正: query_embeddingsは必ずリスト形式で渡す
             results = self.collection.query(
-                query_embeddings=[query_embedding],  # 単一埋め込みをリスト内に配置
+                query_embeddings=[query_embedding],
                 n_results=max_results,
                 include=['metadatas', 'documents', 'distances']
             )
