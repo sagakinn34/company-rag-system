@@ -1,14 +1,34 @@
+
+# 企業RAGシステム v7.0 - 完全版依存関係
+# Google Drive, Notion, Discord統合対応
+
+# Core Framework
 streamlit
 openai==0.28.1
 chromadb==0.4.18
 sentence-transformers
+
+# Notion Integration
 notion-client==2.0.0
+
+# Google Drive Integration
 google-api-python-client==2.108.0
 google-auth-httplib2==0.1.1
 google-auth-oauthlib==1.1.0
+PyPDF2
+python-docx
+openpyxl
+python-pptx
+
+# Discord Integration
 discord.py==2.3.2
+
+# Data Processing
 python-dateutil==2.8.2
 pandas>=2.2.0
 numpy>=1.26.0,<2.0.0
 python-dotenv==1.0.0
+
+# Database
 pysqlite3-binary
+            
