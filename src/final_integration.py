@@ -8,7 +8,7 @@ src_path = os.path.join(current_dir, '..', 'src') if 'src' not in current_dir el
 sys.path.insert(0, src_path)
 
 def run_data_integration():
-    """Streamlit UI表示付きデータ統合関数（Google Drive修正版）"""
+    """Streamlit UI表示付きデータ統合関数（完全版）"""
     
     # 統合開始表示
     st.info("🚀 データ統合を開始...")
@@ -50,7 +50,7 @@ def run_data_integration():
         except Exception as e:
             st.error(f"❌ Notion取得エラー: {e}")
         
-        # 2. Google Driveプロセッサー（修正版）
+        # 2. Google Driveプロセッサー
         status_text.text("📂 Google Driveからデータ取得中...")
         progress_bar.progress(40)
         
@@ -60,9 +60,8 @@ def run_data_integration():
             if gdrive_creds:
                 st.info("📂 GOOGLE_DRIVE_CREDENTIALS: ✅ 設定済み")
                 
-                # 修正：直接GoogleDriveProcessorをインポート
                 from gdrive_processor import GoogleDriveProcessor
-                st.success("📂 GoogleDriveProcessor インポート成功")
+                st.success("📂 gdrive_processor インポート成功")
                 
                 gdrive = GoogleDriveProcessor()
                 st.success("📂 GoogleDriveProcessor インスタンス作成成功")
@@ -79,14 +78,14 @@ def run_data_integration():
                 st.error("❌ GOOGLE_DRIVE_CREDENTIALSが設定されていません")
                     
         except ImportError as e:
-            st.error(f"❌ GoogleDriveProcessor インポートエラー: {e}")
+            st.error(f"❌ Google Drive モジュール インポートエラー: {e}")
         except Exception as e:
             st.error(f"❌ Google Drive取得エラー: {e}")
         
-        # 3. Discordプロセッサー（スキップ）
+        # 3. Discordプロセッサー（一旦スキップ）
         status_text.text("💬 Discord処理をスキップ中...")
         progress_bar.progress(70)
-        st.info("💬 Discord処理は現在スキップされています")
+        st.info("💬 Discord統合: 一旦スキップ（今後実装予定）")
         
         # 4. ベクトルDBに統合
         status_text.text("🔄 ベクトルDBに統合中...")
