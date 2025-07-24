@@ -18,7 +18,21 @@ sys.path.append('src')
 from vector_db_processor import VectorDBProcessor
 from ai_assistant_final import AIAssistant
 
+# データ統合機能のimport
+try:
+    from final_integration import IntegratedRAGSystem
+    INTEGRATION_AVAILABLE = True
+except ImportError:
+    INTEGRATION_AVAILABLE = False
+    st.error("⚠️ データ統合モジュールが見つかりません")
+
 def main():
+    st.set_page_config(
+        page_title="企業RAGシステム",
+        page_icon="🚀",
+        layout="wide"
+    )
+    
     st.title("🚀 企業RAGシステム - GPT-4o大容量対応版")
     st.caption("128,000トークン対応・最大50件文書・深層分析機能搭載")
     
@@ -27,8 +41,105 @@ def main():
         st.session_state.vector_db = VectorDBProcessor()
         st.session_state.ai_assistant = AIAssistant()
     
-    # サイドバーでオプション設定
+    # サイドバー：システム管理機能
+    st.sidebar.header("🔧 システム管理")
+    
+    # データ統合セクション
+    st.sidebar.subheader("📊 データ統合")
+    
+    # データベース状態表示
+    try:
+        db_info = st.session_state.vector_db.get_collection_info()
+        document_count = db_info.get('document_count', 0)
+        st.sidebar.metric("データベース", f"{document_count}件")
+        
+        # データが0件の場合の警告
+        if document_count == 0:
+            st.sidebar.warning("⚠️ データベースが空です")
+            st.sidebar.info("👇 下のボタンでデータを統合してください")
+        
+    except Exception as e:
+        st.sidebar.error(f"DB接続エラー: {str(e)}")
+        document_count = 0
+    
+    # データ統合ボタン
+    if INTEGRATION_AVAILABLE:
+        if st.sidebar.button("🔄 データを統合する", type="primary"):
+            with st.sidebar:
+                with st.spinner("データを統合中..."):
+                    try:
+                        # プログレスバー
+                        progress_bar = st.progress(0)
+                        status_text = st.empty()
+                        
+                        # データ統合の実行
+                        status_text.text("📱 Discord データを取得中...")
+                        progress_bar.progress(25)
+                        
+                        integration_system = IntegratedRAGSystem()
+                        
+                        status_text.text("📝 Notion データを取得中...")
+                        progress_bar.progress(50)
+                        
+                        status_text.text("📁 Google Drive データを取得中...")
+                        progress_bar.progress(75)
+                        
+                        result = integration_system.run_integration()
+                        
+                        status_text.text("✅ データベースに統合中...")
+                        progress_bar.progress(100)
+                        
+                        if result:
+                            st.success("✅ データ統合完了！")
+                            st.info("🔄 ページが自動更新されます...")
+                            # 状態をリセット
+                            if 'vector_db' in st.session_state:
+                                del st.session_state.vector_db
+                            st.rerun()  # ページを再読み込み
+                        else:
+                            st.error("❌ データ統合に失敗しました")
+                            
+                    except Exception as e:
+                        st.error(f"統合エラー: {str(e)}")
+                        st.info("💡 環境変数（Secrets）を確認してください")
+    else:
+        st.sidebar.error("❌ データ統合機能が利用できません")
+    
+    # 手動データベースリセット
+    if st.sidebar.button("🗑️ データベースをリセット"):
+        try:
+            st.session_state.vector_db = VectorDBProcessor()
+            st.sidebar.success("✅ データベースをリセットしました")
+            st.rerun()
+        except Exception as e:
+            st.sidebar.error(f"リセットエラー: {str(e)}")
+    
+    # 環境変数チェック
+    st.sidebar.subheader("🔑 環境変数チェック")
+    env_check = {}
+    import os
+    
+    env_vars = ['NOTION_TOKEN', 'OPENAI_API_KEY', 'DISCORD_TOKEN', 'GOOGLE_DRIVE_CREDENTIALS']
+    for var in env_vars:
+        if var in os.environ or var in st.secrets:
+            env_check[var] = "✅"
+        else:
+            env_check[var] = "❌"
+    
+    for var, status in env_check.items():
+        st.sidebar.write(f"{status} {var}")
+    
+    # サイドバー：分析設定
     st.sidebar.header("⚙️ 大容量処理設定")
+    
+    # データソースフィルター（データがある場合のみ）
+    if document_count > 0:
+        st.sidebar.subheader("📂 データソース選択")
+        source_filter = st.sidebar.multiselect(
+            "検索するデータソース:",
+            ["Discord", "Notion", "Google Drive"],
+            default=["Discord", "Notion", "Google Drive"]
+        )
     
     # 分析タイプ選択
     analysis_type = st.sidebar.selectbox(
@@ -61,10 +172,6 @@ def main():
         help="集約処理は時間がかかりますが、より詳細な分析が可能です"
     )
     
-    # データベース状態表示
-    db_info = st.session_state.vector_db.get_collection_info()
-    st.sidebar.success(f"📊 データベース: {db_info['document_count']}件")
-    
     # GPT-4o仕様表示
     st.sidebar.info("""
     🚀 **GPT-4o仕様**
@@ -79,7 +186,34 @@ def main():
     if n_results >= 40:
         st.sidebar.warning("⚠️ 40件以上は処理時間が長くなります（1-2分程度）")
     
-    # メイン検索インターフェース
+    # メイン画面：データがない場合の案内
+    if document_count == 0:
+        st.warning("""
+        ## 📊 データベースが空です
+        
+        **データを統合してからご利用ください：**
+        1. 左サイドバーの「🔄 データを統合する」をクリック
+        2. Notion、Google Drive、Discordからデータを取得
+        3. 環境変数（Secrets）が正しく設定されていることを確認
+        
+        **必要な環境変数：**
+        - NOTION_TOKEN
+        - OPENAI_API_KEY  
+        - DISCORD_TOKEN
+        - GOOGLE_DRIVE_CREDENTIALS
+        """)
+        
+        # テスト用のサンプル質問
+        st.info("""
+        **環境変数設定後に以下のような質問ができます：**
+        - ガイドの管理に関する現状と課題を教えてください
+        - プロジェクトの進捗状況を詳細に分析してください
+        - チーム内のコミュニケーション課題と改善策を提案してください
+        """)
+        
+        return
+    
+    # メイン検索インターフェース（データがある場合）
     st.markdown("### 🔍 質問入力")
     query = st.text_area(
         "詳細な質問を入力してください:", 
@@ -106,63 +240,69 @@ def main():
             st.info(f"⏱️ 推定処理時間: {processing_time_estimate}秒（{n_results}件の文書を大容量分析中...）")
             
             with st.spinner(f"GPT-4oで{n_results}件の文書を深層分析中...しばらくお待ちください"):
-                # 検索実行
-                search_results = st.session_state.vector_db.search(query, n_results)
-                
-                if search_results:
-                    # AI分析実行
-                    analysis_result = st.session_state.ai_assistant.analyze(
-                        search_results, query, analysis_type
-                    )
+                try:
+                    # 検索実行
+                    search_results = st.session_state.vector_db.search(query, n_results)
                     
-                    # 成功通知
-                    st.success(f"✅ {len(search_results)}件の文書から{analysis_type}分析完了")
-                    
-                    # 処理統計表示
-                    total_chars = sum(len(result.get('content', '')) for result in search_results)
-                    col1, col2, col3, col4 = st.columns(4)
-                    with col1:
-                        st.metric("処理文書数", f"{len(search_results)}件")
-                    with col2:
-                        st.metric("総文字数", f"{total_chars:,}文字")
-                    with col3:
-                        st.metric("推定トークン", f"{total_chars//3:,}")
-                    with col4:
-                        st.metric("GPT-4o使用率", f"{min(100, (total_chars//3)/128000*100):.1f}%")
-                    
-                    # 分析結果表示
-                    st.markdown("## 🎯 GPT-4o深層分析結果")
-                    st.markdown(analysis_result)
-                    
-                    # 詳細検索結果（展開可能）
-                    with st.expander(f"📚 参照文書詳細（{len(search_results)}件）", expanded=False):
-                        # 文書統計
-                        st.markdown("### 📊 文書統計")
-                        avg_similarity = sum(1 - result['distance'] for result in search_results) / len(search_results)
-                        st.write(f"平均類似度: {avg_similarity:.3f}")
+                    if search_results:
+                        # AI分析実行
+                        analysis_result = st.session_state.ai_assistant.analyze(
+                            search_results, query, analysis_type
+                        )
                         
-                        # 各文書の詳細  
-                        for i, result in enumerate(search_results):
-                            st.markdown(f"### 📄 文書 {i+1}")
+                        # 成功通知
+                        st.success(f"✅ {len(search_results)}件の文書から{analysis_type}分析完了")
+                        
+                        # 処理統計表示
+                        total_chars = sum(len(result.get('content', '')) for result in search_results)
+                        col1, col2, col3, col4 = st.columns(4)
+                        with col1:
+                            st.metric("処理文書数", f"{len(search_results)}件")
+                        with col2:
+                            st.metric("総文字数", f"{total_chars:,}文字")
+                        with col3:
+                            st.metric("推定トークン", f"{total_chars//3:,}")
+                        with col4:
+                            st.metric("GPT-4o使用率", f"{min(100, (total_chars//3)/128000*100):.1f}%")
+                        
+                        # 分析結果表示
+                        st.markdown("## 🎯 GPT-4o深層分析結果")
+                        st.markdown(analysis_result)
+                        
+                        # 詳細検索結果（展開可能）
+                        with st.expander(f"📚 参照文書詳細（{len(search_results)}件）", expanded=False):
+                            # 文書統計
+                            st.markdown("### 📊 文書統計")
+                            avg_similarity = sum(1 - result['distance'] for result in search_results) / len(search_results)
+                            st.write(f"平均類似度: {avg_similarity:.3f}")
                             
-                            col1, col2 = st.columns([2, 1])
-                            with col1:
-                                st.markdown(f"**タイトル:** {result['metadata'].get('title', '無題')}")
-                                st.markdown(f"**出典:** {result['metadata'].get('source', '不明')}")
-                            with col2:
-                                st.metric("類似度", f"{1 - result['distance']:.3f}")
-                                st.metric("文字数", f"{len(result['content'])}文字")
-                            
-                            with st.expander(f"文書{i+1}の内容を表示"):
-                                content = result['content']
-                                if len(content) > 2000:
-                                    st.text(content[:2000] + f"\n\n... (残り{len(content)-2000}文字)")
-                                    if st.button(f"文書{i+1}の全文を表示", key=f"show_full_{i}"):
+                            # 各文書の詳細  
+                            for i, result in enumerate(search_results):
+                                st.markdown(f"### 📄 文書 {i+1}")
+                                
+                                col1, col2 = st.columns([2, 1])
+                                with col1:
+                                    st.markdown(f"**タイトル:** {result['metadata'].get('title', '無題')}")
+                                    st.markdown(f"**出典:** {result['metadata'].get('source', '不明')}")
+                                with col2:
+                                    st.metric("類似度", f"{1 - result['distance']:.3f}")
+                                    st.metric("文字数", f"{len(result['content'])}文字")
+                                
+                                with st.expander(f"文書{i+1}の内容を表示"):
+                                    content = result['content']
+                                    if len(content) > 2000:
+                                        st.text(content[:2000] + f"\n\n... (残り{len(content)-2000}文字)")
+                                        if st.button(f"文書{i+1}の全文を表示", key=f"show_full_{i}"):
+                                            st.text(content)
+                                    else:
                                         st.text(content)
-                                else:
-                                    st.text(content)
-                else:
-                    st.error("❌ 関連する文書が見つかりませんでした。検索キーワードを変更してお試しください。")
+                    else:
+                        st.error("❌ 関連する文書が見つかりませんでした。検索キーワードを変更してお試しください。")
+                        
+                except Exception as e:
+                    st.error(f"分析エラー: {str(e)}")
+                    st.info("💡 環境変数やデータベースの状態を確認してください")
+                    
         else:
             st.warning("⚠️ 質問を入力してください。")
     
@@ -178,3 +318,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+
