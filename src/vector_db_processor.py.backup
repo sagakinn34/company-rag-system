@@ -1,0 +1,110 @@
+import os
+import chromadb
+from sentence_transformers import SentenceTransformer
+import logging
+
+class VectorDBProcessor:
+    def __init__(self, db_path="chroma_db"):
+        """ChromaDBを使用したベクトルデータベース処理クラス"""
+        self.db_path = db_path
+        
+        # 軽量モデルに変更（メモリ使用量を大幅削減）
+        print("📦 軽量埋め込みモデルを読み込み中...")
+        self.model = SentenceTransformer('intfloat/multilingual-e5-small')
+        print("✅ 軽量モデル読み込み完了")
+        
+        # ChromaDBクライアントの初期化
+        self.client = chromadb.PersistentClient(path=db_path)
+        
+        # コレクションの取得または作成
+        try:
+            self.collection = self.client.get_collection("company_documents")
+            print(f"📚 既存コレクション読み込み: {self.collection.count()}件")
+        except:
+            self.collection = self.client.create_collection("company_documents")
+            print("📚 新規コレクション作成完了")
+    
+    def add_document(self, document_data):
+        """文書をベクトルデータベースに追加"""
+        try:
+            # テキスト内容を取得
+            content = document_data.get('content', '')
+            if not content or len(content.strip()) == 0:
+                print("⚠️ 空の文書をスキップ")
+                return False
+            
+            # 長すぎる文書は切り詮（メモリ対策）
+            if len(content) > 2000:
+                content = content[:2000] + "..."
+            
+            # 埋め込みベクトルを生成
+            embedding = self.model.encode(content).tolist()
+            
+            # 文書ID生成
+            doc_id = f"doc_{self.collection.count() + 1}"
+            
+            # ChromaDBに追加
+            self.collection.add(
+                documents=[content],
+                embeddings=[embedding],
+                metadatas=[{
+                    'title': document_data.get('title', 'タイトルなし'),
+                    'source': document_data.get('source', 'unknown'),
+                    'type': document_data.get('type', 'document')
+                }],
+                ids=[doc_id]
+            )
+            
+            print(f"✅ 文書追加成功: {document_data.get('title', 'タイトルなし')[:50]}...")
+            return True
+            
+        except Exception as e:
+            print(f"❌ 文書追加エラー: {e}")
+            return False
+    
+    def search(self, query, n_results=5):
+        """クエリに基づいて類似文書を検索"""
+        try:
+            # クエリの埋め込みベクトルを生成
+            query_embedding = self.model.encode(query).tolist()
+            
+            # 類似文書を検索
+            results = self.collection.query(
+                query_embeddings=[query_embedding],
+                n_results=n_results
+            )
+            
+            # 結果を整形
+            formatted_results = []
+            for i, doc in enumerate(results['documents'][0]):
+                formatted_results.append({
+                    'content': doc,
+                    'metadata': results['metadatas'][0][i],
+                    'distance': results['distances'][0][i] if 'distances' in results else 0
+                })
+            
+            print(f"🔍 検索完了: {len(formatted_results)}件の関連文書を発見")
+            return formatted_results
+            
+        except Exception as e:
+            print(f"❌ 検索エラー: {e}")
+            return []
+    
+    def get_stats(self):
+        """データベースの統計情報を取得"""
+        count = self.collection.count()
+        return {
+            'total_documents': count,
+            'status': 'active' if count > 0 else 'empty'
+        }
+
+if __name__ == "__main__":
+    # テスト実行
+    processor = VectorDBProcessor()
+    stats = processor.get_stats()
+    print(f"📊 データベース統計: {stats}")
+    
+    # 簡単な検索テスト
+    if stats['total_documents'] > 0:
+        test_results = processor.search("テスト", n_results=2)
+        print(f"🧪 検索テスト完了: {len(test_results)}件")
