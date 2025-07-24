@@ -24,181 +24,135 @@ def get_correct_class_name():
                     return class_name
         return None
     except Exception as e:
-        print(f"クラス名検出エラー: {e}")
+        st.error(f"クラス名検出エラー: {e}")
         return None
 
 def run_data_integration():
-    """詳細ログ付きデータ統合関数"""
-    print("🚀ーーーーーーーーーーーーーーーーーーーーーーーー")
-    print("🚀 データ統合を開始...")
-    print("🚀ーーーーーーーーーーーーーーーーーーーーーーーー")
+    """Streamlit UI表示付きデータ統合関数"""
     
-    if 'st' in globals():
-        st.info("🚀 データ統合を開始...")
+    # 統合開始表示
+    st.info("🚀 データ統合を開始...")
+    progress_bar = st.progress(0)
+    status_text = st.empty()
     
     try:
         documents = []
         
         # 1. Notionプロセッサー
-        print("📝ーーーーーーーーーーーーーーーーーーーーーーーー")
-        print("📝 Notionからデータ取得中...")
-        print("📝ーーーーーーーーーーーーーーーーーーーーーーーー")
-        
-        if 'st' in globals():
-            st.info("📝 Notionからデータ取得中...")
+        status_text.text("📝 Notionからデータ取得中...")
+        progress_bar.progress(10)
         
         try:
             # Notion TOKENの確認
-            notion_token = st.secrets.get("NOTION_TOKEN") if 'st' in globals() else os.getenv("NOTION_TOKEN")
-            print(f"📝 NOTION_TOKEN設定状況: {'✅ 設定済み' if notion_token else '❌ 未設定'}")
-            
+            notion_token = st.secrets.get("NOTION_TOKEN")
             if notion_token:
+                st.info("📝 NOTION_TOKEN: ✅ 設定済み")
+                
                 from notion_processor import NotionProcessor
-                print("📝 NotionProcessorインポート成功")
+                st.success("📝 NotionProcessor インポート成功")
                 
                 notion = NotionProcessor()
-                print("📝 NotionProcessorインスタンス作成成功")
+                st.success("📝 NotionProcessor インスタンス作成成功")
                 
                 notion_docs = notion.get_all_pages()
-                print(f"📝 Notion取得結果: {type(notion_docs)}, 件数: {len(notion_docs) if notion_docs else 0}")
+                st.info(f"📝 Notion取得結果: {len(notion_docs) if notion_docs else 0}件")
                 
                 if notion_docs:
                     documents.extend(notion_docs)
-                    print(f"✅ Notion: {len(notion_docs)}件取得成功")
-                    if 'st' in globals():
-                        st.success(f"✅ Notion: {len(notion_docs)}件取得成功")
+                    st.success(f"✅ Notion: {len(notion_docs)}件取得成功")
                 else:
-                    print("⚠️ Notionデータが空です")
-                    if 'st' in globals():
-                        st.warning("⚠️ Notionデータが空です")
+                    st.warning("⚠️ Notionデータが空です")
             else:
-                print("❌ NOTION_TOKENが設定されていません")
-                if 'st' in globals():
-                    st.error("❌ NOTION_TOKENが設定されていません")
+                st.error("❌ NOTION_TOKENが設定されていません")
                 
         except ImportError as e:
-            print(f"❌ NotionProcessor インポートエラー: {e}")
-            if 'st' in globals():
-                st.error(f"❌ NotionProcessor インポートエラー: {e}")
+            st.error(f"❌ NotionProcessor インポートエラー: {e}")
         except Exception as e:
-            print(f"❌ Notion取得エラー: {e}")
-            if 'st' in globals():
-                st.error(f"❌ Notion取得エラー: {e}")
+            st.error(f"❌ Notion取得エラー: {e}")
         
         # 2. Google Driveプロセッサー
-        print("📂ーーーーーーーーーーーーーーーーーーーーーーーー")
-        print("📂 Google Driveからデータ取得中...")
-        print("📂ーーーーーーーーーーーーーーーーーーーーーーーー")
-        
-        if 'st' in globals():
-            st.info("📂 Google Driveからデータ取得中...")
+        status_text.text("📂 Google Driveからデータ取得中...")
+        progress_bar.progress(40)
         
         try:
             # Google Drive認証の確認
-            gdrive_creds = st.secrets.get("GOOGLE_DRIVE_CREDENTIALS") if 'st' in globals() else os.getenv("GOOGLE_DRIVE_CREDENTIALS")
-            print(f"📂 GOOGLE_DRIVE_CREDENTIALS設定状況: {'✅ 設定済み' if gdrive_creds else '❌ 未設定'}")
-            
+            gdrive_creds = st.secrets.get("GOOGLE_DRIVE_CREDENTIALS")
             if gdrive_creds:
+                st.info("📂 GOOGLE_DRIVE_CREDENTIALS: ✅ 設定済み")
+                
                 # 正しいクラス名を取得
                 gdrive_class_name = get_correct_class_name()
-                print(f"🔍 検出されたクラス名: {gdrive_class_name}")
+                st.info(f"🔍 検出されたクラス名: {gdrive_class_name}")
                 
                 if gdrive_class_name:
                     # 動的インポート
                     gdrive_module = importlib.import_module('gdrive_processor')
-                    print("📂 gdrive_processorインポート成功")
+                    st.success("📂 gdrive_processor インポート成功")
                     
                     GDriveClass = getattr(gdrive_module, gdrive_class_name)
-                    print(f"📂 {gdrive_class_name}クラス取得成功")
+                    st.success(f"📂 {gdrive_class_name}クラス取得成功")
                     
                     gdrive = GDriveClass()
-                    print("📂 Google Driveインスタンス作成成功")
+                    st.success("📂 Google Drive インスタンス作成成功")
                     
                     gdrive_docs = gdrive.get_all_files()
-                    print(f"📂 Google Drive取得結果: {type(gdrive_docs)}, 件数: {len(gdrive_docs) if gdrive_docs else 0}")
+                    st.info(f"📂 Google Drive取得結果: {len(gdrive_docs) if gdrive_docs else 0}件")
                     
                     if gdrive_docs:
                         documents.extend(gdrive_docs)
-                        print(f"✅ Google Drive: {len(gdrive_docs)}件取得成功")
-                        if 'st' in globals():
-                            st.success(f"✅ Google Drive: {len(gdrive_docs)}件取得成功")
+                        st.success(f"✅ Google Drive: {len(gdrive_docs)}件取得成功")
                     else:
-                        print("⚠️ Google Driveデータが空です")
-                        if 'st' in globals():
-                            st.warning("⚠️ Google Driveデータが空です")
+                        st.warning("⚠️ Google Driveデータが空です")
                 else:
-                    print("❌ Google Driveクラス名を検出できませんでした")
-                    if 'st' in globals():
-                        st.error("❌ Google Driveクラス名を検出できませんでした")
+                    st.error("❌ Google Driveクラス名を検出できませんでした")
             else:
-                print("❌ GOOGLE_DRIVE_CREDENTIALSが設定されていません")
-                if 'st' in globals():
-                    st.error("❌ GOOGLE_DRIVE_CREDENTIALSが設定されていません")
+                st.error("❌ GOOGLE_DRIVE_CREDENTIALSが設定されていません")
                     
         except ImportError as e:
-            print(f"❌ Google Drive モジュール インポートエラー: {e}")
-            if 'st' in globals():
-                st.error(f"❌ Google Drive モジュール インポートエラー: {e}")
+            st.error(f"❌ Google Drive モジュール インポートエラー: {e}")
         except Exception as e:
-            print(f"❌ Google Drive取得エラー: {e}")
-            if 'st' in globals():
-                st.error(f"❌ Google Drive取得エラー: {e}")
+            st.error(f"❌ Google Drive取得エラー: {e}")
         
         # 3. Discordプロセッサー
-        print("💬ーーーーーーーーーーーーーーーーーーーーーーーー")
-        print("💬 Discordからデータ取得中...")
-        print("💬ーーーーーーーーーーーーーーーーーーーーーーーー")
-        
-        if 'st' in globals():
-            st.info("💬 Discordからデータ取得中...")
+        status_text.text("💬 Discordからデータ取得中...")
+        progress_bar.progress(70)
         
         try:
             # Discord TOKENの確認
-            discord_token = st.secrets.get("DISCORD_TOKEN") if 'st' in globals() else os.getenv("DISCORD_TOKEN")
-            print(f"💬 DISCORD_TOKEN設定状況: {'✅ 設定済み' if discord_token else '❌ 未設定'}")
-            
+            discord_token = st.secrets.get("DISCORD_TOKEN")
             if discord_token:
+                st.info("💬 DISCORD_TOKEN: ✅ 設定済み")
+                
                 from discord_processor import DiscordProcessor
-                print("💬 DiscordProcessorインポート成功")
+                st.success("💬 DiscordProcessor インポート成功")
                 
                 discord = DiscordProcessor()
-                print("💬 DiscordProcessorインスタンス作成成功")
+                st.success("💬 DiscordProcessor インスタンス作成成功")
                 
                 discord_docs = discord.get_all_messages()
-                print(f"💬 Discord取得結果: {type(discord_docs)}, 件数: {len(discord_docs) if discord_docs else 0}")
+                st.info(f"💬 Discord取得結果: {len(discord_docs) if discord_docs else 0}件")
                 
                 if discord_docs:
                     documents.extend(discord_docs)
-                    print(f"✅ Discord: {len(discord_docs)}件取得成功")
-                    if 'st' in globals():
-                        st.success(f"✅ Discord: {len(discord_docs)}件取得成功")
+                    st.success(f"✅ Discord: {len(discord_docs)}件取得成功")
                 else:
-                    print("⚠️ Discordデータが空です")
-                    if 'st' in globals():
-                        st.warning("⚠️ Discordデータが空です")
+                    st.warning("⚠️ Discordデータが空です")
             else:
-                print("❌ DISCORD_TOKENが設定されていません")
-                if 'st' in globals():
-                    st.error("❌ DISCORD_TOKENが設定されていません")
+                st.error("❌ DISCORD_TOKENが設定されていません")
                     
         except ImportError as e:
-            print(f"❌ DiscordProcessor インポートエラー: {e}")
-            if 'st' in globals():
-                st.error(f"❌ DiscordProcessor インポートエラー: {e}")
+            st.error(f"❌ DiscordProcessor インポートエラー: {e}")
         except Exception as e:
-            print(f"❌ Discord取得エラー: {e}")
-            if 'st' in globals():
-                st.error(f"❌ Discord取得エラー: {e}")
+            st.error(f"❌ Discord取得エラー: {e}")
         
         # 4. ベクトルDBに統合
-        print("🔄ーーーーーーーーーーーーーーーーーーーーーーーー")
-        print(f"🔄 統合処理: 合計{len(documents)}件のデータを処理中...")
-        print("🔄ーーーーーーーーーーーーーーーーーーーーーーーー")
+        status_text.text("🔄 ベクトルDBに統合中...")
+        progress_bar.progress(90)
+        
+        st.info(f"🔄 統合処理: 合計{len(documents)}件のデータを処理中...")
         
         if documents:
-            print(f"🔄 {len(documents)}件をベクトルDBに統合中...")
-            if 'st' in globals():
-                st.info(f"🔄 {len(documents)}件をベクトルDBに統合中...")
+            st.info(f"🔄 {len(documents)}件をベクトルDBに統合中...")
             
             from vector_db_processor import VectorDBProcessor
             vector_db = VectorDBProcessor()
@@ -206,28 +160,25 @@ def run_data_integration():
             
             # 確認
             final_count = vector_db.collection.count()
-            print(f"🎉 統合完了! データベース件数: {final_count}件")
             
-            if 'st' in globals():
-                st.success(f"🎉 データ統合完了: {final_count}件")
+            progress_bar.progress(100)
+            status_text.text("✅ 統合完了!")
+            
+            st.success(f"🎉 データ統合完了: {final_count}件")
             
             return True
         else:
-            print("❌ 統合するデータがありません")
-            print("❌ 全てのサービスでデータが0件でした")
+            progress_bar.progress(100)
+            status_text.text("❌ 統合データなし")
             
-            if 'st' in globals():
-                st.warning("⚠️ 統合するデータが見つかりませんでした")
-                st.error("❌ 全てのサービスでデータが0件でした")
+            st.warning("⚠️ 統合するデータが見つかりませんでした")
+            st.error("❌ 全てのサービスでデータが0件でした")
             
             return False
             
     except Exception as e:
-        print(f"❌ 統合エラー: {e}")
-        if 'st' in globals():
-            st.error(f"❌ 統合エラー: {e}")
-        import traceback
-        traceback.print_exc()
+        st.error(f"❌ 統合エラー: {e}")
+        st.exception(e)
         return False
 
 def safe_integration():
