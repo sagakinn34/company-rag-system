@@ -1,3 +1,16 @@
+# Streamlit Cloud sqlite3 互換性修正
+import sys
+import sqlite3
+
+# sqlite3のバージョンをチェックして、必要に応じて修正
+if sqlite3.sqlite_version_info < (3, 35, 0):
+    try:
+        __import__('pysqlite3')
+        sys.modules['sqlite3'] = sys.modules.pop('pysqlite3')
+    except ImportError:
+        pass
+
+# 既存のimport文
 import streamlit as st
 import sys
 sys.path.append('src')
