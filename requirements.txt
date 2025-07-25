@@ -5,10 +5,10 @@ openai==0.28.1
 chromadb==0.4.18
 pysqlite3-binary==0.5.4
 
-# 埋め込みモデル（安定版バージョン）
-sentence-transformers==4.2.2
-torch==2.1.0
-torchvision==0.16.0
+# 埋め込みモデル（最新版で安定性確保）
+sentence-transformers>=4.1.0,<6.0.0
+torch>=2.0.0
+transformers>=4.20.0
 
 # API統合
 notion-client==2.0.0
@@ -28,3 +28,4 @@ python-dateutil==2.8.2
 pandas>=2.2.0
 numpy>=1.26.0,<2.0.0
 python-dotenv==1.0.0
+
