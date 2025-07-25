@@ -1,5 +1,5 @@
 """
-Google Drive データ処理モジュール - 小規模企業向け拡張版（200件上限）
+Google Drive データ処理モジュール - 最適化版（実用性と可用性のバランス）
 """
 
 import streamlit as st
@@ -9,6 +9,7 @@ from typing import List, Dict, Optional
 from datetime import datetime, timedelta
 from googleapiclient.discovery import build
 from google.oauth2.service_account import Credentials
+import gc
 
 class GoogleDriveProcessor:
     def __init__(self):
@@ -70,19 +71,14 @@ class GoogleDriveProcessor:
             print(f"🔍 エラータイプ: {type(e).__name__}")
             self.service = None
     
-    def get_date_string(self, days_ago):
-        """指定日数前の日付文字列を取得"""
-        target_date = datetime.now() - timedelta(days=days_ago)
-        return target_date.strftime('%Y-%m-%dT%H:%M:%S')
-    
     def get_all_files(self) -> List[Dict]:
-        """小規模企業向け拡張取得（200件上限・バランス重視）"""
+        """最適化版ファイル取得（100件上限・効率重視）"""
         if not self.service:
             print("❌ Google Drive サービスが初期化されていません")
             return []
         
         try:
-            print("🔍 Google Drive ファイル検索を開始（小規模企業拡張版）...")
+            print("🔍 Google Drive最適化処理を開始...")
             
             # 基本接続テスト
             try:
@@ -92,222 +88,140 @@ class GoogleDriveProcessor:
                 print(f"❌ 基本接続テスト失敗: {e}")
                 return []
             
-            # 小規模企業向けバランス取得戦略
-            search_strategies = [
+            # === 最適化設定 ===
+            TOTAL_LIMIT = 100         # 総ファイル数上限
+            CONTENT_LIMIT = 1500      # 1ファイルあたり文字制限
+            
+            # 効率的取得戦略
+            strategies = [
                 {
-                    'name': 'Google Docs（企画・議事録）',
+                    'name': 'Google Docs（重要文書）',
                     'query': "trashed=false and mimeType='application/vnd.google-apps.document'",
-                    'limit': 80,  # 40%
-                    'priority': 'high',
-                    'recent_ratio': 0.6  # 60%最近、40%過去
+                    'limit': 60,  # 60%
+                    'priority': 'high'
                 },
                 {
-                    'name': 'PDF（報告書・契約書）',
+                    'name': 'PDF（報告書）',
                     'query': "trashed=false and mimeType='application/pdf'",
-                    'limit': 60,  # 30%
-                    'priority': 'high',
-                    'recent_ratio': 0.5  # 50%最近、50%過去
+                    'limit': 25,  # 25%
+                    'priority': 'medium'
                 },
                 {
-                    'name': 'Excel（データ・分析）',
-                    'query': "trashed=false and (mimeType='application/vnd.google-apps.spreadsheet' or mimeType contains 'excel')",
-                    'limit': 30,  # 15%
-                    'priority': 'medium',
-                    'recent_ratio': 0.7  # 70%最近、30%過去
-                },
-                {
-                    'name': 'PowerPoint（プレゼン）',
-                    'query': "trashed=false and (mimeType='application/vnd.google-apps.presentation' or mimeType contains 'powerpoint')",
-                    'limit': 20,  # 10%
-                    'priority': 'medium',
-                    'recent_ratio': 0.8  # 80%最近、20%過去
-                },
-                {
-                    'name': 'テキスト（技術文書）',
-                    'query': "trashed=false and mimeType contains 'text'",
-                    'limit': 10,  # 5%
-                    'priority': 'low',
-                    'recent_ratio': 0.5  # 50%最近、50%過去
+                    'name': 'スプレッドシート（データ）',
+                    'query': "trashed=false and mimeType='application/vnd.google-apps.spreadsheet'",
+                    'limit': 15,  # 15%
+                    'priority': 'medium'
                 }
             ]
             
             all_documents = []
             
-            for strategy in search_strategies:
-                print(f"📂 検索戦略: {strategy['name']} (上限: {strategy['limit']}件)")
+            for strategy in strategies:
+                print(f"📂 {strategy['name']} 取得中... (上限: {strategy['limit']}件)")
                 
                 try:
-                    # 時系列バランス計算
-                    recent_limit = int(strategy['limit'] * strategy['recent_ratio'])
-                    old_limit = strategy['limit'] - recent_limit
+                    # 効率的ファイル取得
+                    files = self.get_files_by_strategy(strategy, CONTENT_LIMIT)
                     
-                    strategy_documents = []
+                    if files:
+                        all_documents.extend(files)
+                        print(f"✅ {strategy['name']}: {len(files)}件取得成功")
+                    else:
+                        print(f"⚠️ {strategy['name']}: ファイルが見つかりません")
                     
-                    # 最近のファイル取得（90日以内）
-                    if recent_limit > 0:
-                        recent_query = f"{strategy['query']} and modifiedTime > '{self.get_date_string(90)}'"
-                        recent_files = self.get_files_by_query(
-                            recent_query, 
-                            recent_limit, 
-                            'modifiedTime desc'
-                        )
-                        strategy_documents.extend(recent_files)
-                        print(f"  📅 最近90日: {len(recent_files)}件取得")
-                    
-                    # 過去のファイル取得（90日より前）
-                    if old_limit > 0:
-                        old_query = f"{strategy['query']} and modifiedTime <= '{self.get_date_string(90)}'"
-                        old_files = self.get_files_by_query(
-                            old_query, 
-                            old_limit, 
-                            'modifiedTime desc'
-                        )
-                        strategy_documents.extend(old_files)
-                        print(f"  📅 過去: {len(old_files)}件取得")
-                    
-                    # 文書処理
-                    processed_count = 0
-                    for file_info in strategy_documents:
-                        try:
-                            # テキスト抽出
-                            text_content = self.extract_simple_text(file_info)
-                            
-                            if text_content and len(text_content.strip()) > 10:
-                                document = {
-                                    'id': f"gdrive_{file_info['id']}",
-                                    'title': file_info['name'],
-                                    'content': text_content[:3000],  # 3000文字に拡張
-                                    'source': 'google_drive',
-                                    'type': 'file',
-                                    'category': strategy['name'],
-                                    'priority': strategy['priority'],
-                                    'mime_type': file_info['mimeType'],
-                                    'size': file_info.get('size', '0'),
-                                    'created_time': file_info.get('createdTime', ''),
-                                    'modified_time': file_info.get('modifiedTime', ''),
-                                    'url': f"https://drive.google.com/file/d/{file_info['id']}/view"
-                                }
-                                all_documents.append(document)
-                                processed_count += 1
-                            
-                        except Exception as file_error:
-                            print(f"⚠️ ファイル処理スキップ: {file_info['name']} - {file_error}")
-                            continue
-                    
-                    print(f"✅ {strategy['name']}: {processed_count}件処理完了")
+                    # メモリクリーンアップ
+                    gc.collect()
                     
                 except Exception as strategy_error:
-                    print(f"❌ 戦略「{strategy['name']}」エラー: {strategy_error}")
+                    print(f"❌ {strategy['name']}取得エラー: {strategy_error}")
                     continue
             
-            print(f"🎉 Google Drive 処理完了: {len(all_documents)} 件のドキュメント")
+            print(f"🎉 Google Drive最適化処理完了: {len(all_documents)} 件のドキュメント")
             
             # 結果サマリー表示
-            self.print_summary(all_documents)
+            self.print_optimized_summary(all_documents)
             
-            return all_documents
+            return all_documents[:TOTAL_LIMIT]  # 念のため上限制限
             
         except Exception as e:
-            print(f"❌ Google Drive ファイル処理エラー: {e}")
+            print(f"❌ Google Drive最適化処理エラー: {e}")
             return []
     
-    def get_files_by_query(self, query: str, limit: int, order_by: str = 'modifiedTime desc') -> List[Dict]:
-        """クエリによるファイル取得（ページネーション対応）"""
-        files = []
-        page_token = None
-        remaining_limit = limit
+    def get_files_by_strategy(self, strategy: Dict, content_limit: int) -> List[Dict]:
+        """戦略別ファイル取得"""
+        documents = []
         
-        while remaining_limit > 0:
-            try:
-                page_size = min(remaining_limit, 100)  # API制限
-                
-                request_params = {
-                    'q': query,
-                    'pageSize': page_size,
-                    'orderBy': order_by,
-                    'fields': "files(id, name, mimeType, size, createdTime, modifiedTime), nextPageToken"
-                }
-                
-                if page_token:
-                    request_params['pageToken'] = page_token
-                
-                results = self.service.files().list(**request_params).execute()
-                current_files = results.get('files', [])
-                
-                if not current_files:
-                    break
-                
-                files.extend(current_files)
-                remaining_limit -= len(current_files)
-                
-                page_token = results.get('nextPageToken')
-                if not page_token:
-                    break
+        try:
+            # ファイル一覧取得（最新順）
+            results = self.service.files().list(
+                q=strategy['query'],
+                pageSize=strategy['limit'],
+                orderBy='modifiedTime desc',
+                fields="files(id, name, mimeType, size, createdTime, modifiedTime)"
+            ).execute()
+            
+            files = results.get('files', [])
+            
+            for file_info in files:
+                try:
+                    # 軽量テキスト抽出
+                    text_content = self.extract_text_optimized(file_info, content_limit)
                     
-            except Exception as e:
-                print(f"❌ クエリ実行エラー: {e}")
-                break
-        
-        return files[:limit]  # 念のため上限でカット
+                    if text_content and len(text_content.strip()) > 20:
+                        document = {
+                            'id': f"gdrive_{file_info['id']}",
+                            'title': file_info['name'],
+                            'content': text_content[:content_limit],
+                            'source': 'google_drive',
+                            'type': 'file',
+                            'category': strategy['name'],
+                            'priority': strategy['priority'],
+                            'mime_type': file_info['mimeType'],
+                            'size': file_info.get('size', '0'),
+                            'created_time': file_info.get('createdTime', ''),
+                            'modified_time': file_info.get('modifiedTime', ''),
+                            'url': f"https://drive.google.com/file/d/{file_info['id']}/view"
+                        }
+                        documents.append(document)
+                
+                except Exception as file_error:
+                    print(f"⚠️ ファイル処理スキップ: {file_info.get('name', '不明')} - {file_error}")
+                    continue
+            
+            return documents
+            
+        except Exception as e:
+            print(f"❌ 戦略別ファイル取得エラー: {e}")
+            return []
     
-    def extract_simple_text(self, file_info: Dict) -> str:
-        """テキスト抽出（エラーハンドリング強化版）"""
+    def extract_text_optimized(self, file_info: Dict, content_limit: int) -> str:
+        """最適化テキスト抽出"""
         try:
             mime_type = file_info['mimeType']
             file_id = file_info['id']
             file_name = file_info.get('name', '不明')
             
-            print(f"  🔍 テキスト抽出中: {file_name} ({mime_type})")
-            
-            # Google Docs形式の場合
+            # Google Docs形式（優先処理）
             if mime_type == 'application/vnd.google-apps.document':
                 try:
                     request = self.service.files().export_media(fileId=file_id, mimeType='text/plain')
                     file_content = request.execute()
                     text = file_content.decode('utf-8', errors='ignore')
-                    print(f"    ✅ Google Docs: {len(text)}文字取得")
-                    return text
+                    return text[:content_limit]  # 文字数制限
                 except Exception as e:
-                    print(f"    ❌ Google Docs抽出エラー: {e}")
-                    return f"Google Docs: {file_name} (テキスト抽出エラー)"
+                    return f"Google Docs: {file_name} (抽出エラー)"
             
-            # Google Sheets形式の場合
+            # Google Sheets形式（簡易処理）
             elif mime_type == 'application/vnd.google-apps.spreadsheet':
                 try:
                     request = self.service.files().export_media(fileId=file_id, mimeType='text/csv')
                     file_content = request.execute()
                     text = file_content.decode('utf-8', errors='ignore')
-                    print(f"    ✅ Google Sheets: {len(text)}文字取得")
-                    return f"スプレッドシート: {file_name}\n\n{text[:2000]}"
+                    return f"スプレッドシート: {file_name}\n\n{text[:content_limit-100]}"
                 except Exception as e:
-                    print(f"    ❌ Google Sheets抽出エラー: {e}")
                     return f"Google Sheets: {file_name} (データ抽出エラー)"
             
-            # Google Slides形式の場合
-            elif mime_type == 'application/vnd.google-apps.presentation':
-                try:
-                    request = self.service.files().export_media(fileId=file_id, mimeType='text/plain')
-                    file_content = request.execute()
-                    text = file_content.decode('utf-8', errors='ignore')
-                    print(f"    ✅ Google Slides: {len(text)}文字取得")
-                    return f"プレゼンテーション: {file_name}\n\n{text}"
-                except Exception as e:
-                    print(f"    ❌ Google Slides抽出エラー: {e}")
-                    return f"Google Slides: {file_name} (テキスト抽出エラー)"
-            
-            # テキストファイルの場合
-            elif 'text' in mime_type:
-                try:
-                    request = self.service.files().get_media(fileId=file_id)
-                    file_content = request.execute()
-                    text = file_content.decode('utf-8', errors='ignore')
-                    print(f"    ✅ テキストファイル: {len(text)}文字取得")
-                    return text
-                except Exception as e:
-                    print(f"    ❌ テキストファイル抽出エラー: {e}")
-                    return f"テキストファイル: {file_name} (読み込みエラー)"
-            
-            # PDFやその他のファイル（メタ情報のみ）
+            # PDF・その他ファイル（メタデータのみ）
             else:
                 file_size = file_info.get('size', '不明')
                 created_time = file_info.get('createdTime', '不明')
@@ -319,18 +233,16 @@ class GoogleDriveProcessor:
 作成日時: {created_time}
 更新日時: {modified_time}
 
-※このファイルはテキスト抽出に対応していませんが、メタデータを検索対象に含めています。"""
+※メタデータ検索対象"""
                 
-                print(f"    ℹ️ メタデータのみ: {file_name}")
-                return meta_info
+                return meta_info[:content_limit]
                 
         except Exception as e:
-            print(f"    ❌ 全般的な抽出エラー: {e}")
-            return f"ファイル: {file_info.get('name', '不明')} (処理エラー: {str(e)})"
+            return f"ファイル: {file_info.get('name', '不明')} (処理エラー)"
     
-    def print_summary(self, documents: List[Dict]):
-        """取得結果サマリー表示"""
-        print("\n📊 === Google Drive 取得サマリー ===")
+    def print_optimized_summary(self, documents: List[Dict]):
+        """最適化結果サマリー表示"""
+        print("\n📊 === Google Drive最適化取得サマリー ===")
         
         # カテゴリ別集計
         category_count = {}
@@ -351,6 +263,12 @@ class GoogleDriveProcessor:
         for priority, count in priority_count.items():
             print(f"  - {priority}: {count}件")
         
+        # 文字数統計
+        total_chars = sum(len(doc.get('content', '')) for doc in documents)
+        avg_chars = total_chars / len(documents) if documents else 0
+        
+        print(f"📝 総文字数: {total_chars:,}文字")
+        print(f"📝 平均文字数: {avg_chars:.0f}文字")
         print(f"📝 総計: {len(documents)}件")
         print("=" * 40)
 
