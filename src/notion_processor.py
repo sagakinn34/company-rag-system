@@ -1,10 +1,12 @@
 """
-Notion データ処理モジュール - 小規模企業向け拡張版（300件上限）
+Notion データ処理モジュール - 最適化版（実用性と可用性のバランス）
 """
 
 import streamlit as st
 from typing import List, Dict, Optional
 from notion_client import Client
+import gc
+import time
 
 class NotionProcessor:
     def __init__(self):
@@ -28,377 +30,273 @@ class NotionProcessor:
             self.client = None
     
     def get_all_pages(self) -> List[Dict]:
-        """小規模企業向け拡張取得（300件上限・バランス重視）"""
+        """最適化版ページ取得（150件上限・軽量処理）"""
         if not self.client:
             print("❌ Notionクライアントが初期化されていません")
             return []
         
         try:
-            print("🔍 Notion コンテンツ処理を開始（小規模企業拡張版）...")
+            print("🔍 Notion最適化処理を開始...")
             
             all_documents = []
             
-            # 設定
-            max_pages = 300  # 小規模企業向け上限
-            max_databases = 50  # データベース上限
+            # === 最適化設定 ===
+            MAX_PAGES = 120           # ページ上限
+            MAX_DATABASES = 30        # データベース上限
+            CONTENT_LIMIT = 2000      # 1文書あたり文字制限
+            BLOCK_LIMIT = 15          # ブロック取得制限
             
-            # Phase 1: ページ取得（ページネーション対応）
-            print("📄 ページ取得を開始...")
-            pages = self.get_pages_with_balance(max_pages)
+            # Phase 1: 最適化ページ取得
+            print("📄 最適化ページ取得を開始...")
+            pages = self.get_pages_optimized(MAX_PAGES, CONTENT_LIMIT, BLOCK_LIMIT)
             all_documents.extend(pages)
             
-            # Phase 2: データベース取得
-            print("🗂️ データベース取得を開始...")
-            databases = self.get_databases_with_balance(max_databases)
+            # メモリクリーンアップ
+            gc.collect()
+            
+            # Phase 2: 最適化データベース取得
+            print("🗂️ 最適化データベース取得を開始...")
+            databases = self.get_databases_optimized(MAX_DATABASES, CONTENT_LIMIT)
             all_documents.extend(databases)
             
-            print(f"🎉 Notion 処理完了: {len(all_documents)} 件のドキュメント")
+            print(f"🎉 Notion最適化処理完了: {len(all_documents)} 件のドキュメント")
             
             # 結果サマリー表示
-            self.print_summary(all_documents)
+            self.print_optimized_summary(all_documents)
             
             return all_documents
             
         except Exception as e:
-            print(f"❌ Notion 処理エラー: {e}")
+            print(f"❌ Notion最適化処理エラー: {e}")
             return []
     
-    def get_pages_with_balance(self, max_pages: int) -> List[Dict]:
-        """バランス重視のページ取得"""
+    def get_pages_optimized(self, max_pages: int, content_limit: int, block_limit: int) -> List[Dict]:
+        """最適化ページ取得"""
         pages = []
         
         try:
-            # 取得戦略：時系列バランス
-            recent_limit = int(max_pages * 0.6)  # 60%は最近
-            old_limit = max_pages - recent_limit  # 40%は過去
-            
-            print(f"📅 最近のページ取得中... (上限: {recent_limit}件)")
-            recent_pages = self.get_pages_by_timeframe('recent', recent_limit)
-            pages.extend(recent_pages)
-            print(f"✅ 最近のページ: {len(recent_pages)}件取得")
-            
-            print(f"📅 過去のページ取得中... (上限: {old_limit}件)")
-            old_pages = self.get_pages_by_timeframe('old', old_limit, exclude_recent=True)
-            pages.extend(old_pages)
-            print(f"✅ 過去のページ: {len(old_pages)}件取得")
-            
-        except Exception as e:
-            print(f"❌ ページ取得エラー: {e}")
-        
-        return pages
-    
-    def get_pages_by_timeframe(self, timeframe: str, limit: int, exclude_recent: bool = False) -> List[Dict]:
-        """時系列別ページ取得"""
-        pages = []
-        start_cursor = None
-        processed_count = 0
-        
-        try:
-            while processed_count < limit:
-                # クエリパラメータ
-                query_params = {
-                    "page_size": min(100, limit - processed_count),  # 残り件数を考慮
+            # 最新ページ優先で効率取得
+            results = self.client.search(
+                **{
+                    "page_size": min(max_pages, 100),
                     "sort": {
                         "direction": "descending",
                         "timestamp": "last_edited_time"
+                    },
+                    "filter": {
+                        "property": "object",
+                        "value": "page"
                     }
                 }
-                
-                if start_cursor:
-                    query_params["start_cursor"] = start_cursor
-                
-                # Notion API呼び出し
-                results = self.client.search(**query_params)
-                current_pages = results.get('results', [])
-                
-                if not current_pages:
+            )
+            
+            processed_count = 0
+            
+            for page in results.get('results', []):
+                if processed_count >= max_pages:
                     break
                 
-                # 時系列フィルタリング
-                filtered_pages = []
-                for page in current_pages:
-                    if processed_count >= limit:
-                        break
+                try:
+                    # 軽量コンテンツ抽出
+                    content = self.extract_page_content_lightweight(
+                        page['id'], 
+                        content_limit, 
+                        block_limit
+                    )
                     
-                    # 時系列判定
-                    if self.should_include_page(page, timeframe, exclude_recent):
-                        page_doc = self.process_single_page(page)
-                        if page_doc:
-                            filtered_pages.append(page_doc)
-                            processed_count += 1
+                    if content and len(content.strip()) > 20:
+                        document = {
+                            'id': f"notion_page_{page['id']}",
+                            'title': self.get_page_title_safe(page),
+                            'content': content[:content_limit],
+                            'source': 'notion',
+                            'type': 'page',
+                            'url': page.get('url', ''),
+                            'last_edited': page.get('last_edited_time', ''),
+                            'parent_type': self.get_parent_type_safe(page)
+                        }
+                        pages.append(document)
+                        processed_count += 1
+                        
+                        # 進捗表示（10件ごと）
+                        if processed_count % 10 == 0:
+                            print(f"📄 ページ処理進捗: {processed_count}/{max_pages}件")
                 
-                pages.extend(filtered_pages)
-                
-                # 次ページ確認
-                if not results.get('has_more', False):
-                    break
-                    
-                start_cursor = results.get('next_cursor')
+                except Exception as e:
+                    print(f"⚠️ ページ処理スキップ: {e}")
+                    continue
+            
+            print(f"✅ ページ取得完了: {len(pages)}件")
+            return pages
             
         except Exception as e:
-            print(f"❌ 時系列ページ取得エラー ({timeframe}): {e}")
-        
-        return pages
+            print(f"❌ ページ取得エラー: {e}")
+            return []
     
-    def should_include_page(self, page: Dict, timeframe: str, exclude_recent: bool) -> bool:
-        """ページ包含判定"""
-        try:
-            from datetime import datetime, timedelta
-            
-            last_edited = page.get('last_edited_time')
-            if not last_edited:
-                return timeframe == 'old'  # 編集日時不明は過去として扱う
-            
-            # 日時解析
-            edited_date = datetime.fromisoformat(last_edited.replace('Z', '+00:00'))
-            now = datetime.now(edited_date.tzinfo)
-            
-            # 90日前を境界とする
-            boundary_date = now - timedelta(days=90)
-            
-            is_recent = edited_date > boundary_date
-            
-            if timeframe == 'recent':
-                return is_recent and not exclude_recent
-            elif timeframe == 'old':
-                return not is_recent or not exclude_recent
-            
-            return True
-            
-        except Exception as e:
-            print(f"⚠️ 日時判定エラー: {e}")
-            return True  # エラー時は含める
-    
-    def process_single_page(self, page: Dict) -> Optional[Dict]:
-        """単一ページの処理"""
-        try:
-            page_id = page['id']
-            
-            # ページ内容を取得
-            content = self.extract_page_content(page_id)
-            
-            if content and len(content.strip()) > 5:
-                document = {
-                    'id': f"notion_page_{page_id}",
-                    'title': self.get_page_title(page),
-                    'content': content[:4000],  # 4000文字に拡張
-                    'source': 'notion',
-                    'type': 'page',
-                    'url': page.get('url', ''),
-                    'last_edited': page.get('last_edited_time', ''),
-                    'created': page.get('created_time', ''),
-                    'parent_type': self.get_parent_type(page)
-                }
-                
-                return document
-            
-        except Exception as e:
-            print(f"❌ ページ処理エラー: {e}")
-        
-        return None
-    
-    def get_databases_with_balance(self, max_databases: int) -> List[Dict]:
-        """バランス重視のデータベース取得"""
+    def get_databases_optimized(self, max_databases: int, content_limit: int) -> List[Dict]:
+        """最適化データベース取得"""
         databases = []
         
         try:
-            print(f"🗂️ データベース検索中... (上限: {max_databases}件)")
-            
-            # データベース一覧取得
-            start_cursor = None
-            processed_count = 0
-            
-            while processed_count < max_databases:
-                query_params = {
+            # データベース検索
+            results = self.client.search(
+                **{
                     "filter": {
                         "property": "object",
                         "value": "database"
                     },
-                    "page_size": min(100, max_databases - processed_count)
+                    "page_size": min(max_databases, 50)
                 }
-                
-                if start_cursor:
-                    query_params["start_cursor"] = start_cursor
-                
-                results = self.client.search(**query_params)
-                current_databases = results.get('results', [])
-                
-                if not current_databases:
-                    break
-                
-                # データベース処理
-                for db in current_databases:
-                    if processed_count >= max_databases:
-                        break
-                    
-                    try:
-                        db_doc = self.process_single_database(db)
-                        if db_doc:
-                            databases.append(db_doc)
-                            processed_count += 1
-                            
-                    except Exception as e:
-                        print(f"⚠️ データベース処理スキップ: {e}")
-                        continue
-                
-                # 次ページ確認
-                if not results.get('has_more', False):
-                    break
-                    
-                start_cursor = results.get('next_cursor')
+            )
             
-            print(f"✅ データベース: {len(databases)}件処理完了")
+            processed_count = 0
+            
+            for db in results.get('results', []):
+                if processed_count >= max_databases:
+                    break
+                
+                try:
+                    # 軽量データベース内容抽出
+                    content = self.extract_database_content_lightweight(
+                        db['id'], 
+                        content_limit
+                    )
+                    
+                    if content and len(content.strip()) > 10:
+                        document = {
+                            'id': f"notion_db_{db['id']}",
+                            'title': self.get_database_title_safe(db),
+                            'content': content[:content_limit],
+                            'source': 'notion',
+                            'type': 'database',
+                            'url': db.get('url', ''),
+                            'last_edited': db.get('last_edited_time', ''),
+                            'properties_count': len(db.get('properties', {}))
+                        }
+                        databases.append(document)
+                        processed_count += 1
+                
+                except Exception as e:
+                    print(f"⚠️ データベース処理スキップ: {e}")
+                    continue
+            
+            print(f"✅ データベース取得完了: {len(databases)}件")
+            return databases
             
         except Exception as e:
             print(f"❌ データベース取得エラー: {e}")
-        
-        return databases
+            return []
     
-    def process_single_database(self, database: Dict) -> Optional[Dict]:
-        """単一データベースの処理"""
-        try:
-            db_id = database['id']
-            
-            # データベース内容を取得
-            content = self.extract_database_content(db_id)
-            
-            if content and len(content.strip()) > 5:
-                document = {
-                    'id': f"notion_db_{db_id}",
-                    'title': self.get_database_title(database),
-                    'content': content[:5000],  # データベースは5000文字まで
-                    'source': 'notion',
-                    'type': 'database',
-                    'url': database.get('url', ''),
-                    'last_edited': database.get('last_edited_time', ''),
-                    'created': database.get('created_time', ''),
-                    'properties_count': len(database.get('properties', {}))
-                }
-                
-                return document
-            
-        except Exception as e:
-            print(f"❌ データベース処理エラー: {e}")
-        
-        return None
-    
-    def extract_page_content(self, page_id: str) -> str:
-        """ページコンテンツ抽出（エラーハンドリング強化）"""
+    def extract_page_content_lightweight(self, page_id: str, content_limit: int, block_limit: int) -> str:
+        """軽量ページコンテンツ抽出"""
         try:
             # ページ詳細取得
             page_detail = self.client.pages.retrieve(page_id)
             
-            # ブロック取得
-            blocks_response = self.client.blocks.children.list(block_id=page_id)
+            # 制限されたブロック取得
+            blocks_response = self.client.blocks.children.list(
+                block_id=page_id,
+                page_size=block_limit  # ブロック数制限
+            )
             blocks = blocks_response.get('results', [])
             
             content_parts = []
+            total_chars = 0
             
             # タイトル追加
-            title = self.get_page_title(page_detail)
+            title = self.get_page_title_safe(page_detail)
             if title:
                 content_parts.append(f"タイトル: {title}")
+                total_chars += len(title) + 10
             
-            # ブロック内容抽出
+            # ブロック内容抽出（軽量版）
             for block in blocks:
-                block_text = self.extract_block_text(block)
-                if block_text:
+                if total_chars >= content_limit:
+                    break
+                
+                block_text = self.extract_block_text_simple(block)
+                if block_text and len(block_text.strip()) > 0:
                     content_parts.append(block_text)
+                    total_chars += len(block_text)
             
-            return '\n\n'.join(content_parts)
+            result = '\n\n'.join(content_parts)
+            return result[:content_limit]
             
         except Exception as e:
             print(f"❌ ページコンテンツ抽出エラー: {e}")
-            return f"ページ内容取得エラー: {str(e)}"
+            return f"ページ内容取得エラー: {str(e)[:200]}"
     
-    def extract_database_content(self, db_id: str) -> str:
-        """データベースコンテンツ抽出"""
+    def extract_database_content_lightweight(self, db_id: str, content_limit: int) -> str:
+        """軽量データベースコンテンツ抽出"""
         try:
             # データベース詳細取得
             database = self.client.databases.retrieve(db_id)
             
-            # データベース内のページ取得（最大20件）
+            # データベース内のページ取得（制限）
             pages_response = self.client.databases.query(
                 database_id=db_id,
-                page_size=20
+                page_size=10  # ページ数制限
             )
             pages = pages_response.get('results', [])
             
             content_parts = []
             
             # データベースタイトル
-            db_title = self.get_database_title(database)
+            db_title = self.get_database_title_safe(database)
             if db_title:
                 content_parts.append(f"データベース: {db_title}")
             
-            # プロパティ情報
+            # プロパティ情報（簡略版）
             properties = database.get('properties', {})
             if properties:
-                prop_names = list(properties.keys())
+                prop_names = list(properties.keys())[:5]  # 最初の5個のみ
                 content_parts.append(f"プロパティ: {', '.join(prop_names)}")
             
-            # ページ内容
-            for page in pages[:10]:  # 最大10ページ
+            # ページタイトル（簡略版）
+            for page in pages[:5]:  # 最大5ページ
                 try:
-                    page_title = self.get_page_title(page)
-                    if page_title:
+                    page_title = self.get_page_title_safe(page)
+                    if page_title and len(page_title.strip()) > 0:
                         content_parts.append(f"- {page_title}")
                 except:
                     continue
             
-            return '\n'.join(content_parts)
+            result = '\n'.join(content_parts)
+            return result[:content_limit]
             
         except Exception as e:
             print(f"❌ データベースコンテンツ抽出エラー: {e}")
-            return f"データベース内容取得エラー: {str(e)}"
+            return f"データベース内容取得エラー: {str(e)[:200]}"
     
-    def extract_block_text(self, block: Dict) -> str:
-        """ブロックからテキスト抽出"""
+    def extract_block_text_simple(self, block: Dict) -> str:
+        """簡易ブロックテキスト抽出"""
         try:
             block_type = block.get('type', '')
             block_data = block.get(block_type, {})
             
-            # テキスト系ブロック
-            if block_type in ['paragraph', 'heading_1', 'heading_2', 'heading_3', 'bulleted_list_item', 'numbered_list_item']:
+            # 主要なテキスト系ブロックのみ処理
+            text_types = ['paragraph', 'heading_1', 'heading_2', 'heading_3', 'bulleted_list_item']
+            
+            if block_type in text_types:
                 rich_text = block_data.get('rich_text', [])
-                text_parts = []
-                for text_obj in rich_text:
-                    if text_obj.get('type') == 'text':
-                        text_parts.append(text_obj.get('text', {}).get('content', ''))
-                
-                text = ''.join(text_parts).strip()
-                if text:
-                    prefix = {
-                        'heading_1': '# ',
-                        'heading_2': '## ',
-                        'heading_3': '### ',
-                        'bulleted_list_item': '• ',
-                        'numbered_list_item': '1. '
-                    }.get(block_type, '')
+                if rich_text:
+                    text_parts = []
+                    for text_obj in rich_text:
+                        if text_obj.get('type') == 'text':
+                            content = text_obj.get('text', {}).get('content', '')
+                            if content:
+                                text_parts.append(content)
                     
-                    return f"{prefix}{text}"
-            
-            # その他のブロック
-            elif block_type == 'to_do':
-                rich_text = block_data.get('rich_text', [])
-                text = ''.join([t.get('text', {}).get('content', '') for t in rich_text])
-                checked = block_data.get('checked', False)
-                status = "☑" if checked else "☐"
-                return f"{status} {text}"
-            
-            elif block_type == 'quote':
-                rich_text = block_data.get('rich_text', [])
-                text = ''.join([t.get('text', {}).get('content', '') for t in rich_text])
-                return f"> {text}"
+                    if text_parts:
+                        return ''.join(text_parts).strip()
             
             return ""
             
-        except Exception as e:
-            print(f"⚠️ ブロックテキスト抽出エラー: {e}")
+        except Exception:
             return ""
     
-    def get_page_title(self, page: Dict) -> str:
-        """ページタイトル取得"""
+    def get_page_title_safe(self, page: Dict) -> str:
+        """安全なページタイトル取得"""
         try:
             properties = page.get('properties', {})
             
@@ -407,57 +305,53 @@ class NotionProcessor:
                 if prop_data.get('type') == 'title':
                     title_array = prop_data.get('title', [])
                     if title_array:
-                        return ''.join([t.get('text', {}).get('content', '') for t in title_array])
+                        return ''.join([t.get('text', {}).get('content', '') for t in title_array])[:100]
             
             # フォールバック
-            return page.get('id', '無題')[:8]
+            return f"ページ_{page.get('id', 'unknown')[:8]}"
             
-        except Exception as e:
-            return f"タイトル取得エラー_{page.get('id', 'unknown')[:8]}"
+        except Exception:
+            return f"タイトル不明_{page.get('id', 'unknown')[:8]}"
     
-    def get_database_title(self, database: Dict) -> str:
-        """データベースタイトル取得"""
+    def get_database_title_safe(self, database: Dict) -> str:
+        """安全なデータベースタイトル取得"""
         try:
             title_array = database.get('title', [])
             if title_array:
-                return ''.join([t.get('text', {}).get('content', '') for t in title_array])
+                return ''.join([t.get('text', {}).get('content', '') for t in title_array])[:100]
             
-            return database.get('id', '無題DB')[:8]
+            return f"DB_{database.get('id', 'unknown')[:8]}"
             
-        except Exception as e:
-            return f"DBタイトル取得エラー_{database.get('id', 'unknown')[:8]}"
+        except Exception:
+            return f"DB不明_{database.get('id', 'unknown')[:8]}"
     
-    def get_parent_type(self, page: Dict) -> str:
-        """親オブジェクトタイプ取得"""
+    def get_parent_type_safe(self, page: Dict) -> str:
+        """安全な親タイプ取得"""
         try:
             parent = page.get('parent', {})
             return parent.get('type', 'unknown')
         except:
             return 'unknown'
     
-    def print_summary(self, documents: List[Dict]):
-        """取得結果サマリー表示"""
-        print("\n📊 === Notion 取得サマリー ===")
+    def print_optimized_summary(self, documents: List[Dict]):
+        """最適化結果サマリー表示"""
+        print("\n📊 === Notion最適化取得サマリー ===")
         
         # タイプ別集計
         type_count = {}
-        parent_count = {}
-        
         for doc in documents:
             doc_type = doc.get('type', '不明')
-            parent_type = doc.get('parent_type', '不明')
-            
             type_count[doc_type] = type_count.get(doc_type, 0) + 1
-            parent_count[parent_type] = parent_count.get(parent_type, 0) + 1
         
         print("📄 タイプ別:")
         for doc_type, count in type_count.items():
             print(f"  - {doc_type}: {count}件")
         
-        print("📁 親タイプ別:")
-        for parent_type, count in parent_count.items():
-            print(f"  - {parent_type}: {count}件")
+        # 文字数統計
+        total_chars = sum(len(doc.get('content', '')) for doc in documents)
+        avg_chars = total_chars / len(documents) if documents else 0
         
+        print(f"📝 総文字数: {total_chars:,}文字")
+        print(f"📝 平均文字数: {avg_chars:.0f}文字")
         print(f"📝 総計: {len(documents)}件")
         print("=" * 40)
-
