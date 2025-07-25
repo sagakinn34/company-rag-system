@@ -1,6 +1,8 @@
 import sys
 import os
 import streamlit as st
+import gc
+import time
 
 # 絶対パスでsrcディレクトリを追加
 current_dir = os.path.dirname(os.path.abspath(__file__))
@@ -8,18 +10,26 @@ src_path = os.path.join(current_dir, '..', 'src') if 'src' not in current_dir el
 sys.path.insert(0, src_path)
 
 def run_data_integration():
-    """小規模企業向け拡張データ統合（Notion: 300件, Google Drive: 200件上限）"""
+    """最適化版データ統合（既存関数の改良）"""
     
     # 統合開始表示
-    st.info("🚀 拡張データ統合を開始...")
+    st.info("⚖️ 最適化データ統合を開始...")
     progress_bar = st.progress(0)
     status_text = st.empty()
+    
+    # パフォーマンス監視
+    start_time = time.time()
     
     try:
         documents = []
         
-        # 1. Notionプロセッサー（拡張版）
-        status_text.text("📝 Notionからデータ取得中（拡張版: 300件上限）...")
+        # === 最適化設定 ===
+        NOTION_OPTIMIZED = 150    # 300 → 150 (50%削減)
+        GDRIVE_OPTIMIZED = 100    # 200 → 100 (50%削減)
+        CONTENT_MAX_CHARS = 2000  # コンテンツ文字数制限
+        
+        # 1. Notion最適化処理
+        status_text.text("📝 Notion最適化取得中...")
         progress_bar.progress(20)
         
         try:
@@ -33,24 +43,13 @@ def run_data_integration():
                 notion = NotionProcessor()
                 st.success("📝 NotionProcessor インスタンス作成成功")
                 
-                # 拡張版取得メソッド実行
-                notion_docs = notion.get_all_pages()
-                st.info(f"📝 Notion取得結果（拡張版）: {len(notion_docs) if notion_docs else 0}件")
+                # 最適化取得実行
+                notion_docs = get_notion_optimized_data(notion, NOTION_OPTIMIZED, CONTENT_MAX_CHARS)
+                st.info(f"📝 Notion最適化取得結果: {len(notion_docs) if notion_docs else 0}件")
                 
                 if notion_docs:
                     documents.extend(notion_docs)
-                    st.success(f"✅ Notion拡張取得成功: {len(notion_docs)}件")
-                    
-                    # 詳細内訳表示
-                    with st.expander("📊 Notion取得詳細"):
-                        notion_types = {}
-                        for doc in notion_docs:
-                            doc_type = doc.get('type', '不明')
-                            notion_types[doc_type] = notion_types.get(doc_type, 0) + 1
-                        
-                        for doc_type, count in notion_types.items():
-                            st.write(f"- {doc_type}: {count}件")
-                    
+                    st.success(f"✅ Notion最適化取得成功: {len(notion_docs)}件")
                 else:
                     st.warning("⚠️ Notionデータが空です")
             else:
@@ -58,209 +57,103 @@ def run_data_integration():
                 
         except Exception as e:
             st.error(f"❌ Notion取得エラー: {e}")
-            st.exception(e)
         
-        # 2. Google Driveプロセッサー（拡張版）
-        status_text.text("📂 Google Driveからデータ取得中（拡張版: 200件上限）...")
+        # メモリクリーンアップ
+        gc.collect()
+        
+        # 2. Google Drive最適化処理
+        status_text.text("📂 Google Drive最適化取得中...")
         progress_bar.progress(50)
         
         try:
-            # Google Drive認証の詳細確認
             gdrive_creds = st.secrets.get("GOOGLE_DRIVE_CREDENTIALS")
-            
-            st.info("🔍 === Google Drive拡張診断開始 ===")
             
             if gdrive_creds:
                 st.success("📂 GOOGLE_DRIVE_CREDENTIALS: ✅ 設定済み")
-                st.info(f"🔍 認証情報タイプ: {type(gdrive_creds)}")
                 
-                # 認証情報の詳細チェック
-                if hasattr(gdrive_creds, '_data'):
-                    creds_dict = dict(gdrive_creds._data)
-                else:
-                    creds_dict = dict(gdrive_creds)
+                from gdrive_processor import GoogleDriveProcessor
+                st.success("📂 GoogleDriveProcessor インポート成功")
                 
-                # 必要フィールドの存在確認
-                required_fields = ['type', 'project_id', 'private_key_id', 'private_key', 'client_email']
-                missing_fields = [field for field in required_fields if field not in creds_dict]
+                gdrive = GoogleDriveProcessor()
+                st.success("📂 GoogleDriveProcessor インスタンス作成成功")
                 
-                if missing_fields:
-                    st.error(f"❌ 必要なフィールドが不足: {missing_fields}")
-                else:
-                    st.success("✅ 必要な認証フィールドが全て存在")
-                
-                # Google Drive Processor（拡張版）のインポート・初期化
-                try:
-                    from gdrive_processor import GoogleDriveProcessor
-                    st.success("📂 GoogleDriveProcessor（拡張版）インポート成功")
+                if gdrive.service:
+                    st.success("✅ Google Drive APIサービス初期化成功")
                     
-                    # インスタンス作成
-                    gdrive = GoogleDriveProcessor()
-                    st.success("📂 GoogleDriveProcessor（拡張版）インスタンス作成成功")
+                    # 最適化取得実行
+                    gdrive_docs = get_gdrive_optimized_data(gdrive, GDRIVE_OPTIMIZED, CONTENT_MAX_CHARS)
+                    st.info(f"📂 Google Drive最適化取得結果: {len(gdrive_docs) if gdrive_docs else 0}件")
                     
-                    # サービス初期化確認
-                    if gdrive.service:
-                        st.success("✅ Google Drive APIサービス初期化成功")
-                        
-                        # 接続テスト
-                        try:
-                            test_result = gdrive.service.files().list(pageSize=1).execute()
-                            test_files = test_result.get('files', [])
-                            st.success(f"✅ 接続テスト成功: {len(test_files)}件のファイルにアクセス可能")
-                            
-                            # 拡張版ファイル取得実行
-                            st.info("📂 拡張版ファイル取得中（200件上限・バランス重視）...")
-                            gdrive_docs = gdrive.get_all_files()
-                            st.info(f"📂 Google Drive拡張取得結果: {len(gdrive_docs) if gdrive_docs else 0}件")
-                            
-                            if gdrive_docs:
-                                documents.extend(gdrive_docs)
-                                st.success(f"✅ Google Drive拡張取得成功: {len(gdrive_docs)}件")
-                                
-                                # 詳細内訳表示
-                                with st.expander("📋 Google Drive取得詳細"):
-                                    gdrive_categories = {}
-                                    gdrive_priorities = {}
-                                    
-                                    for doc in gdrive_docs:
-                                        category = doc.get('category', '不明')
-                                        priority = doc.get('priority', '不明')
-                                        
-                                        gdrive_categories[category] = gdrive_categories.get(category, 0) + 1
-                                        gdrive_priorities[priority] = gdrive_priorities.get(priority, 0) + 1
-                                    
-                                    st.write("**カテゴリ別:**")
-                                    for category, count in gdrive_categories.items():
-                                        st.write(f"- {category}: {count}件")
-                                    
-                                    st.write("**重要度別:**")
-                                    for priority, count in gdrive_priorities.items():
-                                        st.write(f"- {priority}: {count}件")
-                            else:
-                                st.warning("⚠️ Google Driveデータが空です")
-                                st.info("💡 考えられる原因:")
-                                st.write("- Service Accountにファイルが共有されていない")
-                                st.write("- 対象ファイルがない、または形式が非対応")
-                                st.write("- アクセス権限が不足している")
-                                
-                        except Exception as api_error:
-                            st.error(f"❌ Google Drive API呼び出しエラー: {api_error}")
-                            st.write(f"🔍 エラータイプ: {type(api_error).__name__}")
-                        
+                    if gdrive_docs:
+                        documents.extend(gdrive_docs)
+                        st.success(f"✅ Google Drive最適化取得成功: {len(gdrive_docs)}件")
                     else:
-                        st.error("❌ Google Drive APIサービスの初期化に失敗")
-                        st.info("💡 Service Account認証情報を確認してください")
-                        
-                except ImportError as e:
-                    st.error(f"❌ GoogleDriveProcessor インポートエラー: {e}")
-                except Exception as e:
-                    st.error(f"❌ GoogleDriveProcessor 初期化エラー: {e}")
-                    st.write(f"🔍 エラータイプ: {type(e).__name__}")
-                    st.write(f"🔍 エラー詳細: {str(e)}")
-                    
+                        st.warning("⚠️ Google Driveデータが空です")
+                else:
+                    st.error("❌ Google Drive APIサービスの初期化に失敗")
             else:
                 st.error("❌ GOOGLE_DRIVE_CREDENTIALSが設定されていません")
-                st.info("💡 Streamlit Secretsで認証情報を設定してください")
                 
-            st.info("🔍 === Google Drive拡張診断終了 ===")
-                    
         except Exception as e:
             st.error(f"❌ Google Drive取得エラー: {e}")
-            st.exception(e)
         
-        # 3. Discordプロセッサー（将来実装予定）
+        # メモリクリーンアップ
+        gc.collect()
+        
+        # 3. Discord処理（スキップ）
         status_text.text("💬 Discord処理をスキップ中...")
         progress_bar.progress(70)
         st.info("💬 Discord統合: 一旦スキップ（今後実装予定）")
         
-        # 4. ベクトルDBに統合（拡張版）
-        status_text.text("🔄 ベクトルDBに統合中（拡張版）...")
+        # 4. 最適化ベクトルDB統合
+        status_text.text("🔄 最適化ベクトル統合中...")
         progress_bar.progress(90)
         
-        st.info(f"🔄 拡張統合処理: 合計{len(documents)}件のデータを処理中...")
+        st.info(f"🔄 最適化統合処理: 合計{len(documents)}件のデータを処理中...")
         
         if documents:
-            st.info(f"🔄 {len(documents)}件を拡張ベクトルDBに統合中...")
-            
             from vector_db_processor import VectorDBProcessor
             vector_db = VectorDBProcessor()
             
             if vector_db.collection:
-                # 統合前のカウント
-                before_count = vector_db.collection.count()
-                st.info(f"📊 統合前のDB件数: {before_count}件")
+                # バッチ処理で負荷軽減
+                batch_size = 10
+                total_batches = (len(documents) + batch_size - 1) // batch_size
                 
-                # ドキュメント統合
-                vector_db.add_documents(documents)
+                st.info(f"🔄 {len(documents)}件を{batch_size}件ずつ{total_batches}バッチで処理中...")
                 
-                # 統合後のカウント
-                after_count = vector_db.collection.count()
-                added_count = after_count - before_count
+                for i in range(0, len(documents), batch_size):
+                    batch = documents[i:i + batch_size]
+                    
+                    try:
+                        vector_db.add_documents(batch)
+                        
+                        # 進捗表示
+                        batch_num = i // batch_size + 1
+                        st.info(f"📊 バッチ{batch_num}/{total_batches}完了 ({len(batch)}件処理)")
+                        
+                        # 3バッチごとにメモリクリーンアップ
+                        if batch_num % 3 == 0:
+                            gc.collect()
+                            time.sleep(0.1)  # 負荷軽減
+                        
+                    except Exception as batch_error:
+                        st.warning(f"⚠️ バッチ{batch_num}処理エラー: {batch_error}")
+                        continue
+                
+                # 最終確認
+                final_count = vector_db.collection.count()
+                elapsed_time = time.time() - start_time
                 
                 progress_bar.progress(100)
-                status_text.text("✅ 拡張統合完了!")
+                status_text.text("✅ 最適化統合完了!")
                 
-                st.success(f"🎉 拡張データ統合完了!")
-                st.success(f"📊 新規追加: {added_count}件")
-                st.success(f"📊 総DB件数: {after_count}件")
+                st.success(f"🎉 最適化データ統合完了!")
+                st.success(f"📊 総DB件数: {final_count}件")
+                st.success(f"⏰ 処理時間: {elapsed_time:.1f}秒")
                 
-                # 拡張統合結果詳細
-                with st.expander("📊 拡張統合結果詳細"):
-                    # ソース別集計
-                    sources = {}
-                    types = {}
-                    categories = {}
-                    priorities = {}
-                    
-                    for doc in documents:
-                        source = doc.get('source', '不明')
-                        doc_type = doc.get('type', '不明')
-                        category = doc.get('category', doc.get('type', '不明'))
-                        priority = doc.get('priority', '不明')
-                        
-                        sources[source] = sources.get(source, 0) + 1
-                        types[doc_type] = types.get(doc_type, 0) + 1
-                        categories[category] = categories.get(category, 0) + 1
-                        if priority != '不明':
-                            priorities[priority] = priorities.get(priority, 0) + 1
-                    
-                    col1, col2 = st.columns(2)
-                    
-                    with col1:
-                        st.write("**📊 ソース別:**")
-                        for source, count in sources.items():
-                            st.write(f"- {source}: {count}件")
-                        
-                        st.write("**📄 タイプ別:**")
-                        for doc_type, count in types.items():
-                            st.write(f"- {doc_type}: {count}件")
-                    
-                    with col2:
-                        st.write("**📁 カテゴリ別:**")
-                        for category, count in categories.items():
-                            st.write(f"- {category}: {count}件")
-                        
-                        if priorities:
-                            st.write("**⭐ 重要度別:**")
-                            for priority, count in priorities.items():
-                                st.write(f"- {priority}: {count}件")
-                
-                # パフォーマンス情報
-                with st.expander("⚡ パフォーマンス情報"):
-                    st.write(f"**処理能力:** 小規模企業向け拡張版")
-                    st.write(f"**Notion上限:** 300件")
-                    st.write(f"**Google Drive上限:** 200件")
-                    st.write(f"**合計上限:** 500件")
-                    st.write(f"**実際の取得:** {len(documents)}件")
-                    st.write(f"**取得率:** {len(documents)/500*100:.1f}%")
-                    
-                    # 時系列バランス分析
-                    notion_docs = [d for d in documents if d.get('source') == 'notion']
-                    gdrive_docs = [d for d in documents if d.get('source') == 'google_drive']
-                    
-                    st.write(f"**データバランス:**")
-                    st.write(f"- Notion: {len(notion_docs)}件 ({len(notion_docs)/len(documents)*100:.1f}%)")
-                    st.write(f"- Google Drive: {len(gdrive_docs)}件 ({len(gdrive_docs)/len(documents)*100:.1f}%)")
+                # 最適化結果詳細
+                display_optimization_results(documents, elapsed_time)
                 
                 return True
             else:
@@ -271,58 +164,234 @@ def run_data_integration():
             status_text.text("❌ 統合データなし")
             
             st.warning("⚠️ 統合するデータが見つかりませんでした")
-            st.error("❌ 全てのサービスでデータが0件でした")
-            
-            # 診断情報
-            with st.expander("🔍 診断情報"):
-                st.write("**考えられる原因:**")
-                st.write("1. **Notion**: アクセス権限、ページが存在しない")
-                st.write("2. **Google Drive**: Service Account未共有、ファイルが存在しない")
-                st.write("3. **認証**: API認証情報の問題")
-                
-                st.write("**対策:**")
-                st.write("1. 各サービスの個別テストを実行")
-                st.write("2. 認証情報の再確認")
-                st.write("3. ファイル共有設定の確認")
-            
             return False
             
     except Exception as e:
-        progress_bar.progress(100)
-        status_text.text("❌ 統合エラー発生")
+        elapsed_time = time.time() - start_time
+        st.error(f"❌ 最適化統合エラー: {e}")
         
-        st.error(f"❌ 拡張統合エラー: {e}")
-        st.exception(e)
-        
-        # エラー詳細情報
-        with st.expander("🔍 エラー詳細"):
-            st.write(f"**エラータイプ:** {type(e).__name__}")
-            st.write(f"**エラーメッセージ:** {str(e)}")
-            st.write(f"**発生箇所:** final_integration.py")
+        # エラー分析
+        with st.expander("🔍 エラー分析"):
+            st.write(f"**実行時間**: {elapsed_time:.1f}秒")
+            st.write(f"**処理済み件数**: {len(documents) if 'documents' in locals() else 0}件")
             
-            import traceback
-            st.code(traceback.format_exc())
+            if elapsed_time > 300:  # 5分超過
+                st.warning("⏰ タイムアウトの可能性があります")
         
         return False
 
+def get_notion_optimized_data(notion, limit: int, max_chars: int):
+    """Notion最適化データ取得（既存処理の改良）"""
+    try:
+        documents = []
+        processed_count = 0
+        
+        # 最新ページ優先取得
+        results = notion.client.search(
+            **{
+                "page_size": min(limit, 100),
+                "sort": {
+                    "direction": "descending",
+                    "timestamp": "last_edited_time"
+                }
+            }
+        )
+        
+        for item in results.get('results', []):
+            if processed_count >= limit:
+                break
+                
+            try:
+                # ページとデータベースを区別
+                if item.get('object') == 'page':
+                    content = extract_page_content_optimized(notion, item['id'], max_chars)
+                elif item.get('object') == 'database':
+                    content = extract_database_content_optimized(notion, item['id'], max_chars)
+                else:
+                    continue
+                
+                if content and len(content.strip()) > 20:  # 最小文字数チェック
+                    document = {
+                        'id': f"notion_{item['id']}",
+                        'title': get_title_safe(item),
+                        'content': content[:max_chars],  # 文字数制限
+                        'source': 'notion',
+                        'type': item.get('object', 'unknown'),
+                        'url': item.get('url', ''),
+                        'last_edited': item.get('last_edited_time', '')
+                    }
+                    documents.append(document)
+                    processed_count += 1
+                    
+                    if processed_count % 10 == 0:  # 10件ごとに進捗表示
+                        st.info(f"📄 Notion処理中: {processed_count}/{limit}件")
+                
+            except Exception as e:
+                print(f"⚠️ Notionアイテム処理スキップ: {e}")
+                continue
+        
+        return documents
+        
+    except Exception as e:
+        st.error(f"❌ Notion最適化取得エラー: {e}")
+        return []
+
+def get_gdrive_optimized_data(gdrive, limit: int, max_chars: int):
+    """Google Drive最適化データ取得（既存処理の改良）"""
+    try:
+        documents = []
+        
+        # 効率的な取得戦略（ファイルタイプ別）
+        strategies = [
+            {
+                'name': 'Google Docs',
+                'query': "trashed=false and mimeType='application/vnd.google-apps.document'",
+                'limit': int(limit * 0.6)  # 60%
+            },
+            {
+                'name': 'PDF',
+                'query': "trashed=false and mimeType='application/pdf'",
+                'limit': int(limit * 0.25)  # 25%
+            },
+            {
+                'name': 'その他',
+                'query': "trashed=false and (mimeType contains 'spreadsheet' or mimeType contains 'presentation')",
+                'limit': int(limit * 0.15)  # 15%
+            }
+        ]
+        
+        for strategy in strategies:
+            try:
+                st.info(f"📂 {strategy['name']}取得中... (上限: {strategy['limit']}件)")
+                
+                results = gdrive.service.files().list(
+                    q=strategy['query'],
+                    pageSize=strategy['limit'],
+                    orderBy='modifiedTime desc',
+                    fields="files(id, name, mimeType, size, createdTime, modifiedTime)"
+                ).execute()
+                
+                files = results.get('files', [])
+                
+                for file_info in files:
+                    if len(documents) >= limit:
+                        break
+                    
+                    try:
+                        # 軽量テキスト抽出
+                        text_content = extract_text_optimized(gdrive, file_info, max_chars)
+                        
+                        if text_content and len(text_content.strip()) > 10:
+                            document = {
+                                'id': f"gdrive_{file_info['id']}",
+                                'title': file_info['name'],
+                                'content': text_content[:max_chars],  # 文字数制限
+                                'source': 'google_drive',
+                                'type': 'file',
+                                'mime_type': file_info['mimeType'],
+                                'url': f"https://drive.google.com/file/d/{file_info['id']}/view"
+                            }
+                            documents.append(document)
+                            
+                    except Exception as file_error:
+                        print(f"⚠️ ファイル処理スキップ: {file_error}")
+                        continue
+                
+                st.success(f"✅ {strategy['name']}: {len([d for d in documents if strategy['name'].lower() in d.get('mime_type', '').lower()])}件取得")
+                
+            except Exception as strategy_error:
+                st.warning(f"⚠️ {strategy['name']}取得エラー: {strategy_error}")
+                continue
+        
+        return documents
+        
+    except Exception as e:
+        st.error(f"❌ Google Drive最適化取得エラー: {e}")
+        return []
+
+# ユーティリティ関数
+def extract_page_content_optimized(notion, page_id: str, max_chars: int) -> str:
+    """最適化ページコンテンツ抽出"""
+    try:
+        # 簡易版：ブロック取得を制限
+        blocks_response = notion.client.blocks.children.list(
+            block_id=page_id,
+            page_size=20  # ブロック数制限
+        )
+        blocks = blocks_response.get('results', [])
+        
+        content_parts = []
+        total_chars = 0
+        
+        for block in blocks:
+            if total_chars >= max_chars:
+                break
+                
+            block_text = extract_block_text_simple(block)
+            if block_text and len(block_text.strip()) > 0:
+                content_parts.append(block_text)
+                total_chars += len(block_text)
+        
+        return '\n\n'.join(content_parts)[:max_chars]
+        
+    except Exception as e:
+        return f"ページ内容取得エラー: {str(e)}"
+
+def extract_text_optimized(gdrive, file_info: dict, max_chars: int) -> str:
+    """最適化テキスト抽出"""
+    try:
+        mime_type = file_info['mimeType']
+        file_id = file_info['id']
+        
+        if mime_type == 'application/vnd.google-apps.document':
+            request = gdrive.service.files().export_media(fileId=file_id, mimeType='text/plain')
+            content = request.execute().decode('utf-8', errors='ignore')
+            return content[:max_chars]
+        else:
+            # その他はメタデータのみ
+            return f"ファイル: {file_info['name']}\nタイプ: {mime_type}"
+            
+    except Exception as e:
+        return f"テキスト抽出エラー: {str(e)}"
+
+def display_optimization_results(documents, elapsed_time):
+    """最適化結果表示"""
+    with st.expander("📊 最適化結果詳細"):
+        col1, col2, col3 = st.columns(3)
+        
+        with col1:
+            st.metric("総文書数", len(documents))
+            st.metric("処理時間", f"{elapsed_time:.1f}秒")
+        
+        with col2:
+            sources = {}
+            for doc in documents:
+                source = doc.get('source', '不明')
+                sources[source] = sources.get(source, 0) + 1
+            
+            st.write("**ソース別:**")
+            for source, count in sources.items():
+                st.write(f"- {source}: {count}件")
+        
+        with col3:
+            total_chars = sum(len(doc.get('content', '')) for doc in documents)
+            avg_chars = total_chars / len(documents) if documents else 0
+            
+            st.metric("総文字数", f"{total_chars:,}")
+            st.metric("平均文字数", f"{avg_chars:.0f}")
+        
+        # パフォーマンス評価
+        if elapsed_time < 180:  # 3分以内
+            st.success("🚀 高速処理完了")
+        elif elapsed_time < 300:  # 5分以内
+            st.info("⚡ 標準処理完了")
+        else:
+            st.warning("🐌 処理時間長め")
+
+# 既存関数（下位互換）
 def safe_integration():
     """下位互換性のための関数"""
     return run_data_integration()
 
-# メイン実行部
 if __name__ == "__main__":
-    print("🧪 final_integration.py 拡張版 - 直接実行テスト")
-    
-    # Streamlit環境外でのテスト用
-    try:
-        # 簡易テスト実行
-        print("📝 テスト実行中...")
-        result = safe_integration()
-        
-        if result:
-            print("✅ テスト成功")
-        else:
-            print("❌ テスト失敗")
-            
-    except Exception as e:
-        print(f"❌ テストエラー: {e}")
+    safe_integration()
