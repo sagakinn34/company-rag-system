@@ -1,7 +1,5 @@
 """
-Google Drive データ処理モジュール - 完全版
-Google Drive から各種文書を取得し、テキストを抽出します
-PDF、Word、Excel、PowerPoint に対応
+Google Drive データ処理モジュール - 診断機能付き完全版
 """
 
 import streamlit as st
@@ -11,260 +9,190 @@ from typing import List, Dict, Optional
 from googleapiclient.discovery import build
 from google.oauth2.service_account import Credentials
 
-# PDF/Office文書処理用ライブラリ
-try:
-    import PyPDF2
-    PDF_AVAILABLE = True
-except ImportError:
-    PDF_AVAILABLE = False
-
-try:
-    from docx import Document
-    DOCX_AVAILABLE = True
-except ImportError:
-    DOCX_AVAILABLE = False
-
-try:
-    import openpyxl
-    EXCEL_AVAILABLE = True
-except ImportError:
-    EXCEL_AVAILABLE = False
-
-try:
-    from pptx import Presentation
-    PPTX_AVAILABLE = True
-except ImportError:
-    PPTX_AVAILABLE = False
-
 class GoogleDriveProcessor:
     def __init__(self):
-        """Google Drive プロセッサーを初期化（Streamlit対応版）"""
+        """Google Drive プロセッサーを初期化"""
         self.service = None
         self.setup_service()
     
     def setup_service(self):
-        """Google Drive API サービスを設定（Streamlit Secrets対応）"""
+        """Google Drive API サービスを設定（診断機能付き）"""
         try:
-            # 必要なスコープ
+            print("🔍 Google Drive認証開始...")
+            
+            # Streamlit Secretsから認証情報を取得
+            creds_data = st.secrets.get("GOOGLE_DRIVE_CREDENTIALS")
+            if not creds_data:
+                print("❌ GOOGLE_DRIVE_CREDENTIALSが設定されていません")
+                return
+            
+            print("✅ 認証情報を取得しました")
+            print(f"🔍 認証情報タイプ: {type(creds_data)}")
+            
+            # AttrDict → dict変換
+            if hasattr(creds_data, '_data'):
+                creds_dict = dict(creds_data._data)
+            else:
+                creds_dict = dict(creds_data)
+            
+            print("✅ 認証情報を辞書形式に変換しました")
+            
+            # 必要なフィールドの確認
+            required_fields = ['type', 'project_id', 'private_key_id', 'private_key', 'client_email']
+            missing_fields = [field for field in required_fields if field not in creds_dict]
+            
+            if missing_fields:
+                print(f"❌ 必要なフィールドが不足: {missing_fields}")
+                return
+            
+            print("✅ 必要なフィールドが全て存在します")
+            
+            # スコープ設定
             SCOPES = [
                 'https://www.googleapis.com/auth/drive.readonly',
             ]
             
-            # Streamlit secretsから認証情報を取得
-            creds_dict = st.secrets["GOOGLE_DRIVE_CREDENTIALS"]
-            
-            # AttrDict → 辞書変換
-            if hasattr(creds_dict, '_data'):
-                creds_dict = dict(creds_dict._data)
-            else:
-                creds_dict = dict(creds_dict)
-            
-            # 認証情報を構築
+            # 認証情報からCredentialsオブジェクトを作成
             self.credentials = Credentials.from_service_account_info(
                 creds_dict, 
                 scopes=SCOPES
             )
             
+            print("✅ Google認証情報を作成しました")
+            
             # Drive API サービスを構築
             self.service = build('drive', 'v3', credentials=self.credentials)
-            print("✅ Google Drive API サービスが正常に初期化されました")
+            
+            print("✅ Google Drive API サービス初期化完了")
             
         except Exception as e:
             print(f"❌ Google Drive API 初期化エラー: {e}")
+            print(f"🔍 エラータイプ: {type(e).__name__}")
             self.service = None
     
-    def extract_text_from_pdf(self, file_content: bytes) -> str:
-        """PDFファイルからテキストを抽出"""
-        if not PDF_AVAILABLE:
-            return "PDFテキスト抽出機能は利用できません（PyPDF2未インストール）"
-        
-        try:
-            pdf_file = io.BytesIO(file_content)
-            pdf_reader = PyPDF2.PdfReader(pdf_file)
-            
-            text = ""
-            for page in pdf_reader.pages:
-                text += page.extract_text() + "\n"
-            
-            return text.strip()
-        except Exception as e:
-            print(f"❌ PDF テキスト抽出エラー: {e}")
-            return f"PDFテキスト抽出エラー: {e}"
-    
-    def extract_text_from_docx(self, file_content: bytes) -> str:
-        """Word文書からテキストを抽出"""
-        if not DOCX_AVAILABLE:
-            return "Word文書テキスト抽出機能は利用できません（python-docx未インストール）"
-        
-        try:
-            doc_file = io.BytesIO(file_content)
-            doc = Document(doc_file)
-            
-            text = ""
-            for paragraph in doc.paragraphs:
-                text += paragraph.text + "\n"
-            
-            return text.strip()
-        except Exception as e:
-            print(f"❌ Word テキスト抽出エラー: {e}")
-            return f"Word文書テキスト抽出エラー: {e}"
-    
-    def extract_text_from_xlsx(self, file_content: bytes) -> str:
-        """Excelファイルからテキストを抽出"""
-        if not EXCEL_AVAILABLE:
-            return "Excelファイルテキスト抽出機能は利用できません（openpyxl未インストール）"
-        
-        try:
-            excel_file = io.BytesIO(file_content)
-            workbook = openpyxl.load_workbook(excel_file)
-            
-            text = ""
-            for sheet_name in workbook.sheetnames:
-                sheet = workbook[sheet_name]
-                text += f"=== {sheet_name} ===\n"
-                
-                for row in sheet.iter_rows(values_only=True):
-                    row_text = []
-                    for cell in row:
-                        if cell is not None:
-                            row_text.append(str(cell))
-                    if row_text:
-                        text += "\t".join(row_text) + "\n"
-                
-                text += "\n"
-            
-            return text.strip()
-        except Exception as e:
-            print(f"❌ Excel テキスト抽出エラー: {e}")
-            return f"Excelファイルテキスト抽出エラー: {e}"
-    
-    def extract_text_from_pptx(self, file_content: bytes) -> str:
-        """PowerPointファイルからテキストを抽出"""
-        if not PPTX_AVAILABLE:
-            return "PowerPointファイルテキスト抽出機能は利用できません（python-pptx未インストール）"
-        
-        try:
-            ppt_file = io.BytesIO(file_content)
-            presentation = Presentation(ppt_file)
-            
-            text = ""
-            for i, slide in enumerate(presentation.slides):
-                text += f"=== スライド {i+1} ===\n"
-                
-                for shape in slide.shapes:
-                    if hasattr(shape, "text"):
-                        text += shape.text + "\n"
-                
-                text += "\n"
-            
-            return text.strip()
-        except Exception as e:
-            print(f"❌ PowerPoint テキスト抽出エラー: {e}")
-            return f"PowerPointファイルテキスト抽出エラー: {e}"
-    
-    def download_and_extract_text(self, file_id: str, mime_type: str) -> str:
-        """ファイルをダウンロードしてテキストを抽出"""
-        if not self.service:
-            return ""
-        
-        try:
-            # Google Docs形式の場合はエクスポート
-            if mime_type == 'application/vnd.google-apps.document':
-                request = self.service.files().export_media(fileId=file_id, mimeType='text/plain')
-            elif mime_type == 'application/vnd.google-apps.spreadsheet':
-                request = self.service.files().export_media(fileId=file_id, mimeType='text/csv')
-            elif mime_type == 'application/vnd.google-apps.presentation':
-                request = self.service.files().export_media(fileId=file_id, mimeType='text/plain')
-            else:
-                # その他のファイルは直接ダウンロード
-                request = self.service.files().get_media(fileId=file_id)
-            
-            file_content = request.execute()
-            
-            # ファイルタイプに応じてテキスト抽出
-            if mime_type == 'application/pdf':
-                return self.extract_text_from_pdf(file_content)
-            elif mime_type == 'application/vnd.openxmlformats-officedocument.wordprocessingml.document':
-                return self.extract_text_from_docx(file_content)
-            elif mime_type == 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet':
-                return self.extract_text_from_xlsx(file_content)
-            elif mime_type == 'application/vnd.openxmlformats-officedocument.presentationml.presentation':
-                return self.extract_text_from_pptx(file_content)
-            elif 'google-apps' in mime_type:
-                # Google Docs形式はプレーンテキストとして処理
-                return file_content.decode('utf-8')
-            else:
-                # その他はプレーンテキストとして試行
-                try:
-                    return file_content.decode('utf-8')
-                except:
-                    return file_content.decode('utf-8', errors='ignore')
-        
-        except Exception as e:
-            print(f"❌ ファイルダウンロード・テキスト抽出エラー: {e}")
-            return f"ファイルエラー: {e}"
-    
     def get_all_files(self) -> List[Dict]:
-        """全ファイルを処理してドキュメント形式で返す"""
+        """全ファイルを処理してドキュメント形式で返す（診断機能付き）"""
         if not self.service:
             print("❌ Google Drive サービスが初期化されていません")
             return []
         
         try:
-            print("🔍 Google Drive ファイル処理を開始...")
+            print("🔍 Google Drive ファイル検索を開始...")
             
-            # 対応ファイルタイプでの検索
-            file_types_query = " or ".join([
-                "mimeType='application/pdf'",
-                "mimeType='application/vnd.openxmlformats-officedocument.wordprocessingml.document'",
-                "mimeType='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'",
-                "mimeType='application/vnd.openxmlformats-officedocument.presentationml.presentation'",
-                "mimeType='application/vnd.google-apps.document'",
-                "mimeType='application/vnd.google-apps.spreadsheet'",
-                "mimeType='application/vnd.google-apps.presentation'",
-                "mimeType contains 'text'"
-            ])
+            # まず基本的な接続テスト
+            try:
+                test_result = self.service.files().list(pageSize=1).execute()
+                print(f"✅ 基本接続テスト成功")
+            except Exception as e:
+                print(f"❌ 基本接続テスト失敗: {e}")
+                return []
             
-            results = self.service.files().list(
-                q=f"trashed=false and ({file_types_query})",
-                pageSize=50,
-                fields="files(id, name, mimeType, size, createdTime, modifiedTime)"
-            ).execute()
+            # 段階的検索戦略
+            search_strategies = [
+                {
+                    'name': 'テキストファイル',
+                    'query': "trashed=false and mimeType contains 'text'",
+                    'limit': 10
+                },
+                {
+                    'name': 'Google Docs',
+                    'query': "trashed=false and mimeType='application/vnd.google-apps.document'",
+                    'limit': 10
+                },
+                {
+                    'name': 'PDFファイル',
+                    'query': "trashed=false and mimeType='application/pdf'",
+                    'limit': 5
+                },
+                {
+                    'name': '全ファイル（サンプル）',
+                    'query': "trashed=false",
+                    'limit': 20
+                }
+            ]
             
-            files = results.get('files', [])
-            print(f"📁 {len(files)} 件のファイルが見つかりました")
+            all_documents = []
             
-            documents = []
-            
-            for file_info in files:
-                print(f"📄 処理中: {file_info['name']}")
+            for strategy in search_strategies:
+                print(f"📂 検索戦略: {strategy['name']}")
                 
-                # テキストを抽出
-                text = self.download_and_extract_text(file_info['id'], file_info['mimeType'])
-                
-                if text and text.strip():
-                    document = {
-                        'id': f"gdrive_{file_info['id']}",
-                        'title': file_info['name'],
-                        'content': text,
-                        'source': 'google_drive',
-                        'type': 'file',
-                        'mime_type': file_info['mimeType'],
-                        'size': file_info.get('size', '0'),
-                        'created_time': file_info.get('createdTime', ''),
-                        'modified_time': file_info.get('modifiedTime', ''),
-                        'url': f"https://drive.google.com/file/d/{file_info['id']}/view"
-                    }
-                    documents.append(document)
-                    print(f"✅ テキスト抽出成功: {len(text)} 文字")
-                else:
-                    print(f"⚠️ テキスト抽出失敗: {file_info['name']}")
+                try:
+                    results = self.service.files().list(
+                        q=strategy['query'],
+                        pageSize=strategy['limit'],
+                        fields="files(id, name, mimeType, size, createdTime, modifiedTime)"
+                    ).execute()
+                    
+                    files = results.get('files', [])
+                    print(f"📁 {strategy['name']}: {len(files)}件のファイルが見つかりました")
+                    
+                    if files:
+                        # 最初のファイルの詳細を表示
+                        sample_file = files[0]
+                        print(f"📄 サンプルファイル: {sample_file['name']} ({sample_file['mimeType']})")
+                        
+                        # ファイル処理
+                        for file_info in files:
+                            try:
+                                # テキスト抽出（簡易版）
+                                text_content = self.extract_simple_text(file_info)
+                                
+                                if text_content and len(text_content.strip()) > 10:
+                                    document = {
+                                        'id': f"gdrive_{file_info['id']}",
+                                        'title': file_info['name'],
+                                        'content': text_content[:2000],  # 最初の2000文字
+                                        'source': 'google_drive',
+                                        'type': 'file',
+                                        'mime_type': file_info['mimeType'],
+                                        'size': file_info.get('size', '0'),
+                                        'created_time': file_info.get('createdTime', ''),
+                                        'modified_time': file_info.get('modifiedTime', ''),
+                                        'url': f"https://drive.google.com/file/d/{file_info['id']}/view"
+                                    }
+                                    all_documents.append(document)
+                                    print(f"✅ ファイル処理成功: {file_info['name']} ({len(text_content)}文字)")
+                                
+                            except Exception as file_error:
+                                print(f"⚠️ ファイル処理スキップ: {file_info['name']} - {file_error}")
+                        
+                        # ファイルが見つかった場合は他の戦略はスキップ
+                        if all_documents:
+                            break
+                    
+                except Exception as strategy_error:
+                    print(f"❌ 戦略「{strategy['name']}」エラー: {strategy_error}")
+                    continue
             
-            print(f"🎉 Google Drive 処理完了: {len(documents)} 件のドキュメント")
-            return documents
+            print(f"🎉 Google Drive 処理完了: {len(all_documents)} 件のドキュメント")
+            return all_documents
             
         except Exception as e:
             print(f"❌ Google Drive ファイル処理エラー: {e}")
             return []
-
+    
+    def extract_simple_text(self, file_info: Dict) -> str:
+        """簡易テキスト抽出（診断用）"""
+        try:
+            mime_type = file_info['mimeType']
+            file_id = file_info['id']
+            
+            # Google Docs形式の場合
+            if mime_type == 'application/vnd.google-apps.document':
+                request = self.service.files().export_media(fileId=file_id, mimeType='text/plain')
+                file_content = request.execute()
+                return file_content.decode('utf-8', errors='ignore')
+            
+            # テキストファイルの場合
+            elif 'text' in mime_type:
+                request = self.service.files().get_media(fileId=file_id)
+                file_content = request.execute()
+                return file_content.decode('utf-8', errors='ignore')
+            
+            # その他のファイル（メタ情報のみ）
+            else:
+                return f"ファイル名: {file_info['name']}\nタイプ: {mime_type}\nサイズ: {file_info.get('size', '不明')}"
+                
+        except Exception as e:
+            return f"テキスト抽出エラー: {e}"
 
